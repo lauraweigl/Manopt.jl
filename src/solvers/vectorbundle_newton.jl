@@ -138,48 +138,26 @@ mutable struct AffineCovariantStepsize{R <: Real, N <: Union{Real, Missing}} <: 
     outer_norm::N
 end
 function AffineCovariantStepsize(
-        ::AbstractManifold = DefaultManifold(2);
-        α::Real = 1.0, θ::Real = 1.3, θ_des::Real = 0.5, θ_acc::Real = 1.1 * θ_des, outer_norm::N = missing
+        M::AbstractManifold = DefaultManifold(2);
+        α = 1.0, θ = 1.3, θ_des = 0.5, θ_acc = 1.1 * θ_des, outer_norm::N = missing
     ) where {N <: Union{Real, Missing}}
-    R = promote_type(typeof(α), typeof(θ), typeof(θ_des), typeof(θ_acc))
-    return AffineCovariantStepsize{R, N}(
-        convert(R, α), convert(R, θ), convert(R, θ_des), convert(R, θ_acc), convert(R, 1.0), outer_norm
-    )
+    return AffineCovariantStepsize{typeof(α), typeof(θ), N}(α, θ, θ_des, θ_acc, 1.0, outer_norm)
 end
-function Base.show(io::IO, acs::AffineCovariantStepsize)
-    print(io, "AffineCovariantStepsize(; α = ", acs.α, ", θ = ", acs.θ, ", θ_des = ", acs.θ_des)
-    print(io, ", θ_acc = ", acs.θ_acc)
-    !(ismissing(acs.outer_norm)) && print(io, ", outer_norm = ", acs.outer_norm)
-    return print(io, ")")
-end
-function status_summary(acs::AffineCovariantStepsize; context = :default)
-    (context === :short) && repr(acs)
-    (context === :inline) && return "An affine covariant step size (last step size: $(acs.last_stepsize))"
-    on = ismissing(acs.outer_norm) ? "" : "\n* outer norm:       $(_MANOPT_INDENT)$(acs.outer_norm)"
-    return """
-    An affine covariant step size
-    (last step size: $(acs.last_stepsize))
 
-    ## Parameters
-    * damping factor α: $(_MANOPT_INDENT)$(acs.α)
-    * θ:                $(_MANOPT_INDENT)$(acs.θ)
-    * desired θ:        $(_MANOPT_INDENT)$(acs.θ_des)
-    * acceptable θ:     $(_MANOPT_INDENT)$(acs.θ_acc)$(on)
-    """
-end
 function (acs::AffineCovariantStepsize)(
         amp::AbstractManoptProblem, ams::VectorBundleNewtonState, ::Any, args...; kwargs...
     )
-    α_new = acs.α
+    acs.last_stepsize = acs.α
+    α_new = acs.last_stepsize
     θ_new = acs.θ
     b = copy(amp.newton_equation.b)
-    while θ_new > acs.θ_acc && α_new > 1.0e-10
-        Xα = α_new * ams.X
+    while θ_new > acs.θ_acc && acs.last_stepsize > 1.0e-10
+        Xα = acs.last_stepsize * ams.X
         M = get_manifold(amp)
         retract!(M, ams.p_trial, ams.p, Xα, ams.retraction_method)
 
         rhs_next = amp.newton_equation(M, get_vectorbundle(amp), ams.p, ams.p_trial)
-        rhs_simplified = rhs_next - (1.0 - α_new) * b
+        rhs_simplified = rhs_next - (1.0 - acs.last_stepsize) * b
         amp.newton_equation.b .= rhs_simplified
 
         simplified_newton = ams.sub_problem(amp, ams)
@@ -189,19 +167,24 @@ function (acs::AffineCovariantStepsize)(
         denom = norm(amp.manifold, ams.p, ams.X, add_arg...)
         θ_new = nom / denom
 
-        α_new = min(1.0, ((α_new * acs.θ_des) / θ_new))
+        α_new = min(1.0, ((acs.last_stepsize * acs.θ_des) / θ_new))
+        
+        if θ_new > acs.θ_acc
+            acs.last_stepsize = α_new
+        end
     end
     amp.newton_equation.b .= b
-    acs.last_stepsize = α_new
+    acs.α = α_new
     return acs.last_stepsize
 end
+
 get_initial_stepsize(s::AffineCovariantStepsize) = s.α
 
 function get_last_stepsize(step::AffineCovariantStepsize, ::Any...)
     return step.last_stepsize
 end
 
-default_stepsize(M::AbstractManifold, ::Type{VectorBundleNewtonState}) = ConstantStepsize(M)
+default_stepsize(M::AbstractManifold, ::Type{VectorBundleNewtonState}) = ConstantLength(1.0)
 
 function status_summary(vbns::VectorBundleNewtonState; context::Symbol = :default)
     (context === :short) && return repr(vbns)
