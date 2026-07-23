@@ -126,16 +126,17 @@ end
 function (acs::AffineCovariantStepsize)(
         amp::AbstractManoptProblem, ams::VectorBundleNewtonState, ::Any, args...; kwargs...
     )
-    α_new = acs.α
+    acs.last_stepsize = acs.α
+    α_new = acs.last_stepsize
     θ_new = acs.θ
     b = copy(amp.newton_equation.b)
-    while θ_new > acs.θ_acc && α_new > 1.0e-10
-        Xα = α_new * ams.X
+    while θ_new > acs.θ_acc && acs.last_stepsize > 1.0e-10
+        Xα = acs.last_stepsize * ams.X
         M = get_manifold(amp)
         retract!(M, ams.p_trial, ams.p, Xα, ams.retraction_method)
 
         rhs_next = amp.newton_equation(M, get_vectorbundle(amp), ams.p, ams.p_trial)
-        rhs_simplified = rhs_next - (1.0 - α_new) * b
+        rhs_simplified = rhs_next - (1.0 - acs.last_stepsize) * b
         amp.newton_equation.b .= rhs_simplified
 
         simplified_newton = ams.sub_problem(amp, ams)
@@ -145,19 +146,24 @@ function (acs::AffineCovariantStepsize)(
         denom = norm(amp.manifold, ams.p, ams.X, add_arg...)
         θ_new = nom / denom
 
-        α_new = min(1.0, ((α_new * acs.θ_des) / θ_new))
+        α_new = min(1.0, ((acs.last_stepsize * acs.θ_des) / θ_new))
+        
+        if θ_new > acs.θ_acc
+            acs.last_stepsize = α_new
+        end
     end
     amp.newton_equation.b .= b
-    acs.last_stepsize = α_new
+    acs.α = α_new
     return acs.last_stepsize
 end
+
 get_initial_stepsize(s::AffineCovariantStepsize) = s.α
 
 function get_last_stepsize(step::AffineCovariantStepsize, ::Any...)
     return step.last_stepsize
 end
 
-default_stepsize(M::AbstractManifold, ::Type{VectorBundleNewtonState}) = ConstantStepsize(M)
+default_stepsize(M::AbstractManifold, ::Type{VectorBundleNewtonState}) = ConstantLength(M, 1.0)
 
 function show(io::IO, vbns::VectorBundleNewtonState)
     i = get_count(vbns, :Iterations)
