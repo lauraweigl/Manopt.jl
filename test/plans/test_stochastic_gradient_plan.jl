@@ -1,7 +1,4 @@
-s = joinpath(@__DIR__, "..", "ManoptTestSuite.jl")
-!(s in LOAD_PATH) && (push!(LOAD_PATH, s))
-
-using LinearAlgebra, LRUCache, Manifolds, Manopt, ManoptTestSuite, Test
+using LinearAlgebra, LRUCache, Manifolds, Manopt, Test
 
 @testset "Stochastic Gradient Plan" begin
     M = Sphere(2)
@@ -37,7 +34,7 @@ using LinearAlgebra, LRUCache, Manifolds, Manopt, ManoptTestSuite, Test
         Xa = [zero_vector(M, p) for p in pts]
         Ya = [zero_vector(M, p) for p in pts]
         for obj in [msgo_ff, msgo_vf, msgo_fv, msgo_vv]
-            ddo = ManoptTestSuite.DummyDecoratedObjective(obj)
+            ddo = Manopt.Test.DummyDecoratedObjective(obj)
             @test get_gradients(M, obj, p) == get_gradients(M, ddo, p)
             get_gradients!(M, Xa, obj, p)
             get_gradients!(M, Ya, ddo, p)
@@ -112,5 +109,20 @@ using LinearAlgebra, LRUCache, Manifolds, Manopt, ManoptTestSuite, Test
                 @test get_count(cddo, :StochasticGradient, i) == 2
             end
         end
+    end
+    @testset "show/repr and status_summary" begin
+        s1 = repr(msgo_ff)
+        @test startswith(s1, "ManifoldStochasticGradientObjective(")
+        @test contains(s1, " cost = ")
+        s2 = Manopt.status_summary(msgo_ff)
+        @test contains(s2, "stochastic gradient objective")
+        @test contains(s2, "cost")
+        # missing cost
+        msgo_fm = ManifoldStochasticGradientObjective(sgrad_f1)
+        s3 = repr(msgo_fm)
+        @test !contains(s3, "cost")
+        s4 = Manopt.status_summary(msgo_fm)
+        @test contains(s4, "stochastic gradient objective")
+        @test !contains(s4, "cost")
     end
 end

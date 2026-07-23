@@ -1,8 +1,5 @@
-s = joinpath(@__DIR__, "..", "ManoptTestSuite.jl")
-!(s in LOAD_PATH) && (push!(LOAD_PATH, s))
-
 using Manopt, Manifolds, ManifoldsBase, Test, RecursiveArrayTools
-using ManoptTestSuite
+using Manopt.Test
 using ManifoldDiff: prox_distance, prox_distance!
 
 @testset "Chambolle-Pock" begin
@@ -18,11 +15,11 @@ using ManifoldDiff: prox_distance, prox_distance!
     x_hat = shortest_geodesic(M, data, reverse(data), δ)
     N = TangentBundle(M)
     fidelity(M, x) = 1 / 2 * distance(M, x, f)^2
-    Λ(M, x) = ArrayPartition(x, ManoptTestSuite.forward_logs(M, x))
+    Λ(M, x) = ArrayPartition(x, Manopt.Test.forward_logs(M, x))
     function Λ!(M, Y, x)
         N = TangentBundle(M)
         copyto!(M, Y[N, :point], x)
-        ManoptTestSuite.forward_logs!(M, Y[N, :vector], x)
+        Manopt.Test.forward_logs!(M, Y[N, :vector], x)
         return Y
     end
     prior(M, x) = norm(norm.(Ref(M.manifold), x, submanifold_component(N, Λ(x), 2)), 1)
@@ -31,23 +28,23 @@ using ManifoldDiff: prox_distance, prox_distance!
     function prox_g_dual(N, n, λ, ξ)
         return ArrayPartition(
             ξ[N, :point],
-            ManoptTestSuite.project_collaborative_TV(
+            Manopt.Test.project_collaborative_TV(
                 base_manifold(N), λ, n[N, :point], ξ[N, :vector], Inf, Inf, 1.0
             ),
         )
     end
     function prox_g_dual!(N, η, n, λ, ξ)
         copyto!(N, η[N, :point], ξ[N, :point])
-        ManoptTestSuite.project_collaborative_TV!(
+        Manopt.Test.project_collaborative_TV!(
             base_manifold(N), η[N, :vector], λ, n[N, :point], ξ[N, :vector], Inf, Inf, 1.0
         )
         return η
     end
     DΛ(M, m, X) = ArrayPartition(
-        zero_vector(M, m), ManoptTestSuite.differential_forward_logs(M, m, X)
+        zero_vector(M, m), Manopt.Test.differential_forward_logs(M, m, X)
     )
     adjoint_DΛ(N, m, n, ξ) =
-        ManoptTestSuite.adjoint_differential_forward_logs(N.manifold, m, ξ[N, :vector])
+        Manopt.Test.adjoint_differential_forward_logs(N.manifold, m, ξ[N, :vector])
 
     m = fill(mid_point(pixelM, data[1], data[2]), 2)
     n = Λ(M, m)
@@ -81,7 +78,8 @@ using ManifoldDiff: prox_distance, prox_distance!
             return_state = true,
         )
         @test startswith(
-            repr(o1a), "# Solver state for `Manopt.jl`s Chambolle-Pock Algorithm"
+            Manopt.status_summary(o1a; context = :default),
+            "# Solver state for `Manopt.jl`s Chambolle-Pock Algorithm"
         )
         @test get_solver_result(o1a) == o1
         o2a = ChambollePock(
@@ -92,5 +90,25 @@ using ManifoldDiff: prox_distance, prox_distance!
             update_dual_base = (p, o, k) -> o.n,
         )
         @test o2a ≈ o3
+    end
+    @testset "Callbacks" begin
+        sk_record = Tuple{Symbol, Int}[]
+        cb(symbol, problem, state, k) = push!(sk_record, (symbol, k))
+        ChambollePock(
+            M, N, f, x0, ξ0, m, n, prox_f, prox_g_dual, adjoint_DΛ;
+            Λ = Λ,
+            callbacks = cb,
+            stopping_criterion = StopAfterIteration(1),
+            variant = :exact,
+        )
+        @test sk_record == [
+            (:BeforeInit, 0),
+            (:Init, 0),
+            (:BeforeStop, 0),
+            (:BeforeStep, 1),
+            (:Step, 1),
+            (:BeforeStop, 1),
+            (:Stop, 1),
+        ]
     end
 end

@@ -1,8 +1,6 @@
-s = joinpath(@__DIR__, "..", "ManoptTestSuite.jl")
-!(s in LOAD_PATH) && (push!(LOAD_PATH, s))
-
-using Manopt, Manifolds, ManifoldsBase, ManoptTestSuite, Test, Random, LinearAlgebra
+using Manopt, Manifolds, ManifoldsBase, Test, Random, LinearAlgebra
 using LinearAlgebra: Diagonal, dot, eigvals, eigvecs
+using ManifoldDiff: grad_distance
 
 @testset "Conjugate Gradient Descent" begin
     @testset "Conjugate Gradient coefficient rules" begin
@@ -25,27 +23,20 @@ using LinearAlgebra: Diagonal, dot, eigvals, eigvecs
         dU = SteepestDescentCoefficient()
         s1 = ConjugateGradientDescentState(
             M;
-            p = x0,
-            stopping_criterion = sC,
-            stepsize = s,
-            coefficient = dU,
-            retraction_method = retr,
-            vector_transport_method = vtm,
+            p = x0, stopping_criterion = sC, stepsize = s,
+            coefficient = dU, retraction_method = retr, vector_transport_method = vtm,
             initial_gradient = zero_vector(M, x0),
         )
+        @test startswith(repr(s1), "ConjugateGradientDescentState(; ")
         @test s1.coefficient(dmp, s1, 1) == 0
-        @test default_stepsize(M, typeof(s1)) isa Manopt.ArmijoLinesearchStepsize
+        @test default_stepsize(M, typeof(s1)) isa Manopt.ManifoldDefaultsFactory{Manopt.ArmijoLinesearchStepsize}
         @test Manopt.get_message(s1) == ""
 
         dU = Manopt.ConjugateDescentCoefficient()
         s2 = ConjugateGradientDescentState(
             M;
-            p = x0,
-            stopping_criterion = sC,
-            stepsize = s,
-            coefficient = dU,
-            retraction_method = retr,
-            vector_transport_method = vtm,
+            p = x0, stopping_criterion = sC, stepsize = s, coefficient = dU,
+            retraction_method = retr, vector_transport_method = vtm,
             initial_gradient = zero_vector(M, x0),
         )
         s2.X = grad_1
@@ -185,6 +176,29 @@ using LinearAlgebra: Diagonal, dot, eigvals, eigvecs
         )
 
     end
+    @testset "Callbacks" begin
+        M = Euclidean(2)
+        f(M, x) = norm(x)^2
+        grad_f(::Euclidean, x) = 2 * x
+        sk_record = Tuple{Symbol, Int}[]
+        cb(symbol, problem, state, k) = push!(sk_record, (symbol, k))
+        conjugate_gradient_descent(
+            M, f, grad_f, [1.0, 0.0];
+            callbacks = cb,
+            stepsize = Manopt.ConstantStepsize(M),
+            stopping_criterion = StopAfterIteration(1),
+        )
+        @test sk_record == [
+            (:BeforeInit, 0),
+            (:Init, 0),
+            (:BeforeStop, 0),
+            (:BeforeStep, 1),
+            (:Stepsize, 1),
+            (:Step, 1),
+            (:BeforeStop, 1),
+            (:Stop, 1),
+        ]
+    end
     @testset "Conjugate Gradient runs – Low Rank matrix approx" begin
         A = Diagonal([2.0, 1.1, 1.0])
         M = Sphere(size(A, 1) - 1)
@@ -215,7 +229,7 @@ using LinearAlgebra: Diagonal, dot, eigvals, eigvecs
         )
         @test get_solver_result(x_opt2) == x_opt
         @test startswith(
-            repr(x_opt2),
+            Manopt.status_summary(x_opt2; context = :default),
             "# Solver state for `Manopt.jl`s Conjugate Gradient Descent Solver",
         )
         Random.seed!(23)
@@ -270,19 +284,13 @@ using LinearAlgebra: Diagonal, dot, eigvals, eigvecs
         end
         # should be zero after 2 steps
         p1 = conjugate_gradient_descent(
-            M,
-            f,
-            grad_f,
-            p0;
+            M, f, grad_f, p0;
             stepsize = CGStepsize(),
             stopping_criterion = StopAfterIteration(2),
         )
         p2 = copy(M, p0)
         conjugate_gradient_descent!(
-            M,
-            f,
-            grad_f,
-            p2;
+            M, f, grad_f, p2;
             stepsize = CGStepsize(),
             stopping_criterion = StopAfterIteration(2),
         )
@@ -304,7 +312,7 @@ using LinearAlgebra: Diagonal, dot, eigvals, eigvecs
     end
 
     @testset "CG on the Circle" begin
-        M, f, grad_f, p0, p_star = ManoptTestSuite.Circle_mean_task()
+        M, f, grad_f, p0, p_star = Manopt.Test.Circle_mean_task()
         s = conjugate_gradient_descent(
             M, f, grad_f, p0; evaluation = InplaceEvaluation(), return_state = true
         )
@@ -327,7 +335,7 @@ using LinearAlgebra: Diagonal, dot, eigvals, eigvecs
 
         stopping_criterion = StopAfterIteration(30)
         get_stepsize() = Manopt.ArmijoLinesearchStepsize(
-            M; initial_stepsize = 1.0, initial_guess = (args...) -> 1.0
+            M; initial_stepsize = 1.0, initial_guess = Manopt.ConstantInitialGuess(1.0)
         )
 
         p1 = conjugate_gradient_descent(
@@ -340,18 +348,13 @@ using LinearAlgebra: Diagonal, dot, eigvals, eigvecs
         )
 
         p2 = conjugate_gradient_descent(
-            M,
-            obj,
-            p0;
+            M, obj, p0;
             restart_condition = RestartOnNonDescent(),
-            stopping_criterion,
-            stepsize = get_stepsize(),
+            stopping_criterion, stepsize = get_stepsize(),
         )
 
         p3 = conjugate_gradient_descent(
-            M,
-            obj,
-            p0;
+            M, obj, p0;
             restart_condition = RestartOnNonSufficientDescent(0.5),
             stopping_criterion,
             stepsize = get_stepsize(),
@@ -396,5 +399,31 @@ using LinearAlgebra: Diagonal, dot, eigvals, eigvecs
             stepsize = ArmijoLinesearch(M)
         )
         @test q2 ≈ [1, 0, 0] rtol = 1.0e-7
+    end
+
+    @testset "Custom point types" begin
+        M = Hyperbolic(2)
+        data = PoincareBallPoint.([[0.1, 0.2], [0.3, 0.25], [0.35, 0.4]])
+        n = length(data)
+        f(M, p) = sum(1 / (2 * n) * distance.(Ref(M), Ref(p), data) .^ 2)
+        grad_f(M, p) = sum(1 / n * grad_distance.(Ref(M), data, Ref(p)))
+        @test conjugate_gradient_descent(M, f, grad_f, data[1]) isa PoincareBallPoint
+    end
+
+    @testset "Issue #603: CG with HZ rule on a numerically challenging problem" begin
+        M = Sphere(2)
+        p0 = [1.0, 0.0, 0.0]
+
+        a = [0.0, 1.0, 0.0]
+
+        f(M, p) = 0.5 * norm(p - a)^2
+        grad_f(M, p) = project(M, p, p - a)
+
+        cgs = conjugate_gradient_descent(
+            M, f, grad_f, p0;
+            coefficient = ConjugateGradientBealeRestart(HagerZhangCoefficient()),
+            return_state = true,
+        )
+        @test norm(M, cgs.p, grad_f(M, cgs.p)) < 1.0e-8
     end
 end

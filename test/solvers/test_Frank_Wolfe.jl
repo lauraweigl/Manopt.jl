@@ -1,4 +1,4 @@
-using ManifoldsBase, Manopt, Random, Test, LinearAlgebra
+using ManifoldsBase, Manifolds, Manopt, Random, Test, LinearAlgebra
 
 @testset "Frank Wolfe Method" begin
     M = ManifoldsBase.DefaultManifold(3)
@@ -34,7 +34,10 @@ using ManifoldsBase, Manopt, Random, Test, LinearAlgebra
         @test FG(M, p) == Y
         s = FrankWolfeState(M, oracle!; evaluation = InplaceEvaluation(), p = p)
         @test Manopt.get_message(s) == ""
-        @test startswith(repr(s), "# Solver state for `Manopt.jl`s Frank Wolfe Method\n")
+        @test startswith(Manopt.status_summary(s; context = :default), "# Solver state for `Manopt.jl`s Frank Wolfe Method\n")
+        @test startswith(repr(s), "FrankWolfeState(")
+        # Manifold+State errors since problem is missing
+        @test_throws ErrorException FrankWolfeState(M, Manopt.Test.DummyState())
         set_iterate!(s, 2 .* p)
         @test get_iterate(s) == 2 .* p
         dmp = DefaultManoptProblem(M, ManifoldGradientObjective(FC, FG))
@@ -53,6 +56,17 @@ using ManifoldsBase, Manopt, Random, Test, LinearAlgebra
             p2c = copy(M, p)
             Frank_Wolfe_method!(M, f, grad_f, p2c; sub_problem = oracle)
             @test f(M, p2c) < f(M, p)
+        end
+        @testset "Callbacks" begin
+            sk_record = Tuple{Symbol, Int}[]
+            cb(symbol, problem, state, k) = append!(sk_record, [(symbol, k)])
+            Frank_Wolfe_method(
+                M, f, grad_f, p; callbacks = cb, stopping_criterion = StopAfterIteration(1)
+            )
+            @test sk_record == [
+                (:BeforeInit, 0), (:Init, 0), (:BeforeStop, 0),
+                (:BeforeStep, 1), (:BeforeSubsolver, 1), (:Subsolver, 1), (:Stepsize, 1), (:Step, 1), (:BeforeStop, 1), (:Stop, 1),
+            ]
         end
         @testset "Testing with an Subsolver" begin
             # This is not a useful run since the subproblem is not constraint

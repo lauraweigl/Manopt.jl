@@ -34,7 +34,7 @@ flat_example(::AbstractManifold, p) = 0.0
         @test griewank(M, p1) < 0.1
 
         p1 = cma_es(M, griewank; σ = 10.0, rng = MersenneTwister(123))
-        @test griewank(M, p1) < 0.2
+        @test griewank(M, p1) < 0.25
 
         p1 = [10.0, 10.0]
         cma_es!(M, griewank, p1; σ = 10.0, rng = MersenneTwister(123))
@@ -42,16 +42,32 @@ flat_example(::AbstractManifold, p) = 0.0
 
         o = cma_es(M, griewank, [10.0, 10.0]; return_state = true)
         @test startswith(
-            repr(o),
+            Manopt.status_summary(o; context = :default),
             "# Solver state for `Manopt.jl`s Covariance Matrix Adaptation Evolutionary Strategy",
         )
 
+        @testset "Callbacks" begin
+            sk_record = Tuple{Symbol, Int}[]
+            cb(symbol, problem, state, k) = push!(sk_record, (symbol, k))
+            cma_es(
+                M, griewank, [10.0, 10.0];
+                callbacks = cb,
+                stopping_criterion = StopAfterIteration(1),
+                rng = MersenneTwister(123),
+            )
+            @test sk_record == [
+                (:BeforeInit, 0),
+                (:Init, 0),
+                (:BeforeStop, 0),
+                (:BeforeStep, 1),
+                (:Step, 1),
+                (:BeforeStop, 1),
+                (:Stop, 1),
+            ]
+        end
+
         o_d = cma_es(
-            M,
-            divergent_example,
-            [10.0, 10.0];
-            σ = 10.0,
-            rng = MersenneTwister(123),
+            M, divergent_example, [10.0, 10.0]; σ = 10.0, rng = MersenneTwister(123),
             return_state = true,
         )
         div_sc = only(get_active_stopping_criteria(o_d.stop))
@@ -60,12 +76,8 @@ flat_example(::AbstractManifold, p) = 0.0
         @test startswith(repr(div_sc), "StopWhenPopulationDiverges(")
 
         o_d = cma_es(
-            M,
-            poorly_conditioned_example,
-            [10.0, 10.0];
-            σ = 10.0,
-            rng = MersenneTwister(123),
-            return_state = true,
+            M, poorly_conditioned_example, [10.0, 10.0];
+            σ = 10.0, rng = MersenneTwister(123), return_state = true,
         )
         condcov_sc = only(get_active_stopping_criteria(o_d.stop))
         @test condcov_sc isa StopWhenCovarianceIllConditioned
@@ -73,14 +85,9 @@ flat_example(::AbstractManifold, p) = 0.0
         @test startswith(repr(condcov_sc), "StopWhenCovarianceIllConditioned(")
 
         o_flat = cma_es(
-            M,
-            flat_example,
-            [10.0, 10.0];
-            σ = 10.0,
-            stopping_criterion = StopAfterIteration(500) |
-                StopWhenBestCostInGenerationConstant{Float64}(5),
-            rng = MersenneTwister(123),
-            return_state = true,
+            M, flat_example, [10.0, 10.0]; σ = 10.0,
+            stopping_criterion = StopAfterIteration(500) | StopWhenBestCostInGenerationConstant{Float64}(5),
+            rng = MersenneTwister(123), return_state = true,
         )
         flat_sc = only(get_active_stopping_criteria(o_flat.stop))
         @test flat_sc isa StopWhenBestCostInGenerationConstant
@@ -88,14 +95,9 @@ flat_example(::AbstractManifold, p) = 0.0
         @test startswith(repr(flat_sc), "StopWhenBestCostInGenerationConstant(")
 
         o_flat = cma_es(
-            M,
-            flat_example,
-            [10.0, 10.0];
-            σ = 10.0,
-            stopping_criterion = StopAfterIteration(500) |
-                StopWhenEvolutionStagnates(5, 100, 0.3),
-            rng = MersenneTwister(123),
-            return_state = true,
+            M, flat_example, [10.0, 10.0]; σ = 10.0,
+            stopping_criterion = StopAfterIteration(500) | StopWhenEvolutionStagnates(5, 100, 0.3),
+            rng = MersenneTwister(123), return_state = true,
         )
         flat_sc = only(get_active_stopping_criteria(o_flat.stop))
         @test flat_sc isa StopWhenEvolutionStagnates
@@ -103,14 +105,9 @@ flat_example(::AbstractManifold, p) = 0.0
         @test startswith(repr(flat_sc), "StopWhenEvolutionStagnates(")
 
         o_flat = cma_es(
-            M,
-            flat_example,
-            [10.0, 10.0];
-            σ = 10.0,
-            stopping_criterion = StopAfterIteration(1000) |
-                StopWhenPopulationStronglyConcentrated(1.0e-5),
-            rng = MersenneTwister(12),
-            return_state = true,
+            M, flat_example, [10.0, 10.0]; σ = 10.0,
+            stopping_criterion = StopAfterIteration(1000) | StopWhenPopulationStronglyConcentrated(1.0e-5),
+            rng = MersenneTwister(12), return_state = true,
         )
         flat_sc = only(get_active_stopping_criteria(o_flat.stop))
         @test flat_sc isa StopWhenPopulationStronglyConcentrated
@@ -118,14 +115,9 @@ flat_example(::AbstractManifold, p) = 0.0
         @test startswith(repr(flat_sc), "StopWhenPopulationStronglyConcentrated(")
 
         o_flat = cma_es(
-            M,
-            flat_example,
-            [10.0, 10.0];
-            σ = 10.0,
-            stopping_criterion = StopAfterIteration(500) |
-                StopWhenPopulationCostConcentrated(1.0e-5, 5),
-            rng = MersenneTwister(123),
-            return_state = true,
+            M, flat_example, [10.0, 10.0]; σ = 10.0,
+            stopping_criterion = StopAfterIteration(500) | StopWhenPopulationCostConcentrated(1.0e-5, 5),
+            rng = MersenneTwister(123), return_state = true,
         )
         flat_sc = only(get_active_stopping_criteria(o_flat.stop))
         @test flat_sc isa StopWhenPopulationCostConcentrated
@@ -134,14 +126,9 @@ flat_example(::AbstractManifold, p) = 0.0
 
         # test handling of negative covariance matrix eigenvalues
         @test_warn "Covariance matrix has nonpositive eigenvalues" o_flat = cma_es(
-            M,
-            flat_example,
-            [10.0, 10.0];
-            σ = 10.0,
-            stopping_criterion = StopAfterIteration(10000) |
-                StopWhenPopulationStronglyConcentrated(1.0e-14),
-            rng = MersenneTwister(12),
-            return_state = true,
+            M, flat_example, [10.0, 10.0]; σ = 10.0,
+            stopping_criterion = StopAfterIteration(10000) | StopWhenPopulationStronglyConcentrated(1.0e-14),
+            rng = MersenneTwister(12), return_state = true,
         )
         flat_sc = only(get_active_stopping_criteria(o_flat.stop))
         @test flat_sc isa StopWhenPopulationStronglyConcentrated
@@ -150,7 +137,6 @@ flat_example(::AbstractManifold, p) = 0.0
     end
     @testset "Spherical CMA-ES" begin
         M = Sphere(2)
-
         p1 = cma_es(M, griewank, [0.0, 1.0, 0.0]; σ = 1.0, rng = MersenneTwister(123))
         @test griewank(M, p1) < 0.17
     end

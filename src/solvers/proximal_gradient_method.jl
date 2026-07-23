@@ -11,7 +11,7 @@ See also [FengHuangSongYingZeng:2021](@cite) for a similar approach.
 Given the minimization problem
 
 ```math
-$(_tex(:argmin))_{p∈$(_tex(:Cal, "M"))} f(p),
+$(_tex(:argmin))_{p∈$(_math(:Manifold))} f(p),
 $(_tex(:quad)) $(_tex(:text, " where ")) $(_tex(:quad)) f(p) = g(p) + h(p).
 ```
 
@@ -31,24 +31,25 @@ computing the gradient step.
 
 # Input
 
-$(_var(:Argument, :M; type = true))
-$(_var(:Argument, :f; add = "total cost function `f = g + h`"))
+$(_args([:M, :f]))
+  total cost function ``f = g + h``
 * `g`:              the smooth part of the cost function
 * `grad_g`:           a gradient `(M,p) -> X` or `(M, X, p) -> X` of the smooth part ``g`` of the problem
-$(_var(:Argument, :p))
+$(_args(:p))
 
-# Keyword Arguments
+# Keyword arguments
 
 * `acceleration=(p, s, k) -> (copyto!(get_manifold(M), s.a, s.p); s)`: a function `(problem, state, k) -> state` to compute an acceleration, that is performed before the gradient step - the default is to copy the current point to the acceleration point, i.e. no acceleration is performed
-$(_var(:Keyword, :evaluation))
+$(_kwargs(:callbacks; add_properties = [:process_note]))
+$(_kwargs(:evaluation))
 * `prox_nonsmooth`:          a proximal map `(M,λ,p) -> q` or `(M, q, λ, p) -> q` for the (possibly) nonsmoooth part ``h`` of ``f``
-$(_var(:Argument, :p))
-$(_var(:Keyword, :stepsize; default = "[`default_stepsize`](@ref)`(M, ProximalGradientMethodState)`")) that by default uses a [`ProximalGradientMethodBacktracking`](@ref).
-$(_var(:Keyword, :retraction_method))
-$(_var(:Keyword, :stopping_criterion; default = "[`StopAfterIteration`](@ref)`(100)`"))
-$(_var(:Keyword, :sub_problem, "sub_problem", "Union{AbstractManoptProblem, F, Nothing}"; default = "nothing", add = "or nothing to take the proximal map from the [`ManifoldProximalGradientObjective`](@ref)"))
-$(_var(:Keyword, :sub_state; default = "evaluation", add = "This field is ignored, if the `sub_problem` is `Nothing`"))
-$(_var(:Keyword, :X; add = :as_Gradient))
+$(_kwargs(:stepsize; default = "`[`default_stepsize`](@ref)`(M, `[`ProximalGradientMethodState`](@ref)`)"))
+  that by default uses a [`ProximalGradientMethodBacktracking`](@ref).
+$(_kwargs(:retraction_method))
+$(_kwargs(:stopping_criterion; default = "`[`StopAfterIteration`](@ref)`(100)"))
+$(_kwargs(:sub_problem; type = "Union{`[`AbstractManoptProblem`](@ref)`, F, Nothing}", default = "nothing"))
+  or nothing to take the proximal map from the [`ManifoldProximalGradientObjective`](@ref)
+$(_kwargs(:sub_state; default = "evaluation")). This field is ignored, if the `sub_problem` is `Nothing`.
 
 $(_note(:OtherKeywords))
 
@@ -57,14 +58,8 @@ $(_note(:OutputSection))
 
 @doc "$(_doc_prox_grad_method)"
 function proximal_gradient_method(
-        M::AbstractManifold,
-        f,
-        g,
-        grad_g,
-        p = rand(M);
-        prox_nonsmooth = nothing,
-        evaluation = AllocatingEvaluation(),
-        kwargs...,
+        M::AbstractManifold, f, g, grad_g, p = rand(M);
+        prox_nonsmooth = nothing, evaluation = AllocatingEvaluation(), kwargs...,
     )
     mpgo = ManifoldProximalGradientObjective(
         f, g, grad_g, prox_nonsmooth; evaluation = evaluation
@@ -83,14 +78,8 @@ calls_with_kwargs(::typeof(proximal_gradient_method)) = (proximal_gradient_metho
 
 @doc "$(_doc_prox_grad_method)"
 function proximal_gradient_method!(
-        M::AbstractManifold,
-        f,
-        g,
-        grad_g,
-        p;
-        prox_nonsmooth = nothing,
-        evaluation = AllocatingEvaluation(),
-        kwargs...,
+        M::AbstractManifold, f, g, grad_g, p;
+        prox_nonsmooth = nothing, evaluation = AllocatingEvaluation(), kwargs...,
     )
     mpgo = ManifoldProximalGradientObjective(
         f, g, grad_g, prox_nonsmooth; evaluation = evaluation
@@ -98,13 +87,12 @@ function proximal_gradient_method!(
     return proximal_gradient_method!(M, mpgo, p; evaluation = evaluation, kwargs...)
 end
 function proximal_gradient_method!(
-        M::AbstractManifold,
-        mpgo::O,
-        p;
+        M::AbstractManifold, mpgo::O, p;
         acceleration = function (pr, st, k)
             copyto!(get_manifold(pr), st.a, st.p)
             return st
         end,
+        callbacks = Dict{Symbol, Function}(),
         debug = [DebugWarnIfStepsizeCollapsed()],
         evaluation::AbstractEvaluationType = AllocatingEvaluation(),
         stepsize::Union{Stepsize, ManifoldDefaultsFactory} = default_stepsize(
@@ -162,9 +150,10 @@ function proximal_gradient_method!(
     dmp = DefaultManoptProblem(M, dmpgo)
     pgms = ProximalGradientMethodState(
         M;
+        callbacks = process_callbacks_arg(callbacks, ProximalGradientMethodState),
         p = p,
         acceleration = acceleration,
-        stepsize = _produce_type(stepsize, M),
+        stepsize = _produce_type(stepsize, M, p),
         retraction_method = retraction_method,
         inverse_retraction_method = inverse_retraction_method,
         stopping_criterion = stopping_criterion,
@@ -172,7 +161,7 @@ function proximal_gradient_method!(
         sub_state = sub_state,
         X = X,
     )
-    dpgms = decorate_state!(pgms; kwargs...)
+    dpgms = decorate_state!(pgms; debug = debug, kwargs...)
     solve!(dmp, dpgms)
     return get_solver_return(get_objective(dmp), dpgms)
 end
@@ -182,6 +171,7 @@ function initialize_solver!(amp::AbstractManoptProblem, pgms::ProximalGradientMe
     M = get_manifold(amp)
     zero_vector!(M, pgms.X, pgms.p)
     copyto!(M, pgms.a, pgms.p)
+    initialize_stepsize!(pgms.stepsize)
     return pgms
 end
 
@@ -198,12 +188,15 @@ function step_solver!(amp::AbstractManoptProblem, pgms::ProximalGradientMethodSt
 
     # Compute stepsize using the provided stepsize object
     pgms.last_stepsize = get_stepsize(amp, pgms, k)
+    callback(:Stepsize, amp, pgms, k)
 
     # Gradient step with chosen stepsize
     retract!(M, pgms.a, pgms.a, -pgms.last_stepsize * pgms.X, pgms.retraction_method)
 
     # Proximal step with chosen stepsize
+    callback(:BeforeSubsolver, amp, pgms, k)
     _pgm_proximal_step(amp, pgms, pgms.last_stepsize)
+    callback(:Subsolver, amp, pgms, k)
 
     return pgms
 end

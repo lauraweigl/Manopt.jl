@@ -1,19 +1,41 @@
 #
 #
-# Objective.
+# Objective Abstract
+
 _doc_CR_cost = """
 ```math
-f(X) = $(_tex(:frac, 1, 2)) $(_tex(:norm, _tex(:Cal, "A") * "[X] + b"; index = "p"))^2,\\qquad X ∈ $(_math(:TpM)),
+f(X) = $(_tex(:frac, 1, 2)) $(_tex(:norm, _tex(:Cal, "A") * "[X] + b"; index = "p"))^2,$(_tex(:qquad)) X ∈ $(_math(:TangentSpace)),
 ```
 """
-@doc """
-    SymmetricLinearSystemObjective{E<:AbstractEvaluationType,TA,T} <: AbstractManifoldObjective{E}
+
+"""
+    AbstractSymmetricLinearSystemObjective{E<:AbstractEvaluationType} <: AbstractManifoldObjective{E}
 
 Model the objective
 
 $(_doc_CR_cost)
 
-defined on the tangent space ``$(_math(:TpM))`` at ``p`` on the manifold ``$(_math(:M))``.
+defined on the tangent space ``$(_math(:TangentSpace))`` at ``p`` on the manifold ``$(_math(:Manifold))``.
+
+In other words this is an objective to solve ``$(_tex(:Cal, "A")) = -b(p)``
+for some linear symmetric operator ``$(_tex(:Cal, "A"))`` and a vector function ``b``
+
+Concrete subtypes of this type should/could implement
+
+* [`get_cost`](@ref)`(TpM, aslso, X)` to compute/evaluate the objective
+* [`get_gradient`](@ref)`(TpM, aslso, X)` to compute/evaluate the objectives gradient at `X`
+* [`get_linear_operator`](@ref)`(TpM, aslso, X)` to compute/evaluate the linear operator ``$(_tex(:Cal, "A"))`` at `X`
+"""
+abstract type AbstractSymmetricLinearSystemObjective{E <: AbstractEvaluationType} <: AbstractManifoldObjective{E} end
+
+@doc """
+    SymmetricLinearSystemObjective{E<:AbstractEvaluationType,TA,T} <: AbstractSymmetricLinearSystemObjective{E}
+
+Model the objective
+
+$(_doc_CR_cost)
+
+defined on the tangent space ``$(_math(:TangentSpace))`` at ``p`` on the manifold ``$(_math(:Manifold))``.
 
 In other words this is an objective to solve ``$(_tex(:Cal, "A")) = -b(p)``
 for some linear symmetric operator and a vector function.
@@ -22,8 +44,8 @@ for (iteratively) solving Newton-like equations.
 
 # Fields
 
-* `A!!`: a symmetric, linear operator on the tangent space
-* `b!!`: a gradient function
+* `A!!`: a symmetric, linear operator on the tangent space, see [`get_linear_operator`](@ref)
+* `b!!`: a tangent vector function, see [`get_vector_field`](@ref)
 
 where `A!!` can work as an allocating operator `(M, p, X) -> Y` or an in-place one `(M, Y, p, X) -> Y`,
 and similarly `b!!` can either be a function `(M, p) -> X` or `(M, X, p) -> X`.
@@ -35,8 +57,7 @@ The first variants allocate for the result, the second variants work in-place.
 
 Generate the objective specifying whether the two parts work allocating or in-place.
 """
-mutable struct SymmetricLinearSystemObjective{E <: AbstractEvaluationType, TA, T} <:
-    AbstractManifoldObjective{E}
+mutable struct SymmetricLinearSystemObjective{E <: AbstractEvaluationType, TA, T} <: AbstractSymmetricLinearSystemObjective{E}
     A!!::TA
     b!!::T
 end
@@ -53,8 +74,27 @@ function set_parameter!(slso::SymmetricLinearSystemObjective, symbol::Symbol, va
     return slso
 end
 
+function Base.show(io::IO, slso::SymmetricLinearSystemObjective{E}) where {E}
+    print(io, "SymmetricLinearSystemObjective(")
+    print(io, slso.A!!); print(io, ", "); print(io, slso.b!!); print(io, "; ")
+    print(io, _to_kw(E))
+    return print(io, ")")
+end
+
+function status_summary(slso::SymmetricLinearSystemObjective{E}; context::Symbol = :default) where {E}
+    _is_inline(context) && (return repr(slso))
+    return """
+    An objective modelling a symmetric linear system Ax=b, i.e. with a symmetric matrix A
+    implemented as a function `(M, p, X) -> Y` performing the matrix vector multiplication in the tangent space,
+    and a function `b(M,p)` returning the vector on the right hand side in the current tangent space.
+    Both can also be defined in-place. Here they are $(E === InplaceEvaluation ? "in place" : "allocating").
+
+    # Fields
+    * A: $(slso.A!!)
+    * b: $(slso.b!!)"""
+end
 @doc """
-    get_cost(TpM::TangentSpace, slso::SymmetricLinearSystemObjective, X)
+    get_cost(TpM::TangentSpace, aslso::SymmetricLinearSystemObjective, X)
 
 evaluate the cost
 
@@ -63,44 +103,16 @@ $(_doc_CR_cost)
 at `X`.
 """
 function get_cost(
-        TpM::TangentSpace, slso::SymmetricLinearSystemObjective{AllocatingEvaluation}, X
+        TpM::TangentSpace, aslso::AbstractSymmetricLinearSystemObjective, X
     )
     M = base_manifold(TpM)
     p = base_point(TpM)
-    return 0.5 * norm(M, p, slso.A!!(M, p, X) + slso.b!!(M, p))^2
-end
-function get_cost(
-        TpM::TangentSpace, slso::SymmetricLinearSystemObjective{InplaceEvaluation}, X
-    )
-    M = base_manifold(TpM)
-    p = base_point(TpM)
-    Y = zero_vector(M, p)
-    W = copy(M, p, Y)
-    slso.b!!(M, Y, p)
-    slso.A!!(M, W, p, X)
-    return 0.5 * norm(M, p, W + Y)^2
+    return 0.5 * norm(M, p, get_linear_operator(TpM, aslso, p, X) + get_vector_field(TpM, aslso, p))^2
 end
 
 @doc """
-    get_b(TpM::TangentSpace, slso::SymmetricLinearSystemObjective)
-
-evaluate the stored value for computing the right hand side ``b`` in ``$(_tex(:Cal, "A"))=-b``.
-"""
-function get_b(
-        TpM::TangentSpace, slso::SymmetricLinearSystemObjective{AllocatingEvaluation}
-    )
-    return slso.b!!(base_manifold(TpM), base_point(TpM))
-end
-function get_b(TpM::TangentSpace, slso::SymmetricLinearSystemObjective{InplaceEvaluation})
-    M = base_manifold(TpM)
-    p = base_point(TpM)
-    Y = zero_vector(M, p)
-    return slso.b!!(M, Y, p)
-end
-
-@doc """
-    get_gradient(TpM::TangentSpace, slso::SymmetricLinearSystemObjective, X)
-    get_gradient!(TpM::TangentSpace, Y, slso::SymmetricLinearSystemObjective, X)
+    get_gradient(TpM::TangentSpace, aslso::AbstractSymmetricLinearSystemObjective, X)
+    get_gradient!(TpM::TangentSpace, Y, aslso::AbstractSymmetricLinearSystemObjective, X)
 
 evaluate the gradient of
 
@@ -108,27 +120,28 @@ $(_doc_CR_cost)
 
 Which is ``$(_tex(:grad)) f(X) = $(_tex(:Cal, "A"))[X]+b``. This can be computed in-place of `Y`.
 """
-function get_gradient(TpM::TangentSpace, slso::SymmetricLinearSystemObjective, X)
+function get_gradient(TpM::TangentSpace, aslso::AbstractSymmetricLinearSystemObjective, X)
+    M = base_manifold(TpM)
     p = base_point(TpM)
-    return get_hessian(TpM, slso, p, X) + get_b(TpM, slso)
+    return get_linear_operator(M, aslso, p, X) + get_vector_field(M, aslso, p)
 end
 function get_gradient!(
-        TpM::TangentSpace, Y, slso::SymmetricLinearSystemObjective{AllocatingEvaluation}, X
+        TpM::TangentSpace, Y, aslso::AbstractSymmetricLinearSystemObjective{AllocatingEvaluation}, X
     )
     M = base_manifold(TpM)
     p = base_point(TpM)
     # Evaluate A[X] + b
-    Y .= slso.A!!(M, p, X) + slso.b!!(M, p)
+    Y .= get_linear_operator(M, aslso, p, X) + get_vector_field(M, aslso, p)
     return Y
 end
 function get_gradient!(
-        TpM::TangentSpace, Y, slso::SymmetricLinearSystemObjective{InplaceEvaluation}, X
+        TpM::TangentSpace, Y, aslso::AbstractSymmetricLinearSystemObjective{InplaceEvaluation}, X
     )
     M = base_manifold(TpM)
     p = base_point(TpM)
     W = copy(M, p, Y)
-    slso.b!!(M, Y, p)
-    slso.A!!(M, W, p, X)
+    get_linear_operator!(M, W, aslso, p, X)
+    get_vector_field!(M, Y, aslso, p)
     Y .+= W
     return Y
 end
@@ -142,50 +155,121 @@ evaluate the Hessian of
 $(_doc_CR_cost)
 
 Which is ``$(_tex(:Hess)) f(X)[Y] = $(_tex(:Cal, "A"))[V]``. This can be computed in-place of `W`.
+Internally this (just) calls the [`get_linear_operator`](@ref) function.
 """
-function get_hessian(
-        TpM::TangentSpace, slso::SymmetricLinearSystemObjective{AllocatingEvaluation}, X, V
-    )
-    return slso.A!!(base_manifold(TpM), base_point(TpM), V)
-end
-function get_hessian(
-        TpM::TangentSpace, slso::SymmetricLinearSystemObjective{InplaceEvaluation}, X, V
-    )
+function get_hessian(TpM::TangentSpace, aslso::AbstractSymmetricLinearSystemObjective, X, V)
     M = base_manifold(TpM)
     p = base_point(TpM)
-    W = copy(M, p, V)
-    slso.A!!(M, W, p, V)
-    return W
+    return get_linear_operator(M, aslso, p, V)
 end
-function get_hessian!(
-        TpM::TangentSpace, W, slso::SymmetricLinearSystemObjective{AllocatingEvaluation}, X, V
-    )
+function get_hessian!(TpM::TangentSpace, W, aslso::AbstractSymmetricLinearSystemObjective, X, V)
     M = base_manifold(TpM)
     p = base_point(TpM)
-    copyto!(M, W, p, slso.A!!(M, p, V))
+    get_linear_operator!(M, W, aslso, p, V)
     return W
 end
-function get_hessian!(
-        TpM::TangentSpace, W, slso::SymmetricLinearSystemObjective{InplaceEvaluation}, X, V
+#
+#
+# Specific case with 2 functions
+function get_linear_operator(
+        M::AbstractManifold, slso::SymmetricLinearSystemObjective{AllocatingEvaluation}, p, X,
     )
-    return slso.A!!(base_manifold(TpM), W, base_point(TpM), V)
+    return slso.A!!(M, p, X)
+end
+function get_linear_operator(
+        M::AbstractManifold, slso::SymmetricLinearSystemObjective{InplaceEvaluation}, p, X,
+    )
+    Y = copy(M, p, X)
+    slso.A!!(M, Y, p, X)
+    return Y
+end
+function get_linear_operator!(
+        M::AbstractManifold, W, slso::SymmetricLinearSystemObjective{AllocatingEvaluation}, p, X,
+    )
+    copyto!(M, W, p, slso.A!!(M, p, X))
+    return W
+end
+function get_linear_operator!(
+        M::AbstractManifold, W, slso::SymmetricLinearSystemObjective{InplaceEvaluation}, p, X,
+    )
+    return slso.A!!(M, W, p, X)
 end
 
 @doc """
-    ConjugateResidualState{T,R,TStop<:StoppingCriterion} <: AbstractManoptSolverState
+    get_vector_field(M::AbstractManifold, slso::SymmetricLinearSystemObjective, p)
+    get_vector_field!(M::AbstractManifold, Y, slso::SymmetricLinearSystemObjective, p)
+    get_vector_field(TpM::TangentSpace, slso::SymmetricLinearSystemObjective)
+    get_vector_field!(TpM::TangentSpace, Y, slso::SymmetricLinearSystemObjective)
+
+evaluate the stored value for computing the right hand side ``b`` in ``$(_tex(:Cal, "A"))=-b``,
+either providing a tangent space or a manifold and a point.
+"""
+function get_vector_field(
+        M::AbstractManifold, slso::SymmetricLinearSystemObjective{AllocatingEvaluation}, p
+    )
+    return slso.b!!(M, p)
+end
+function get_vector_field(
+        M::AbstractManifold, slso::SymmetricLinearSystemObjective{InplaceEvaluation}, p
+    )
+    Y = zero_vector(M, p)
+    return slso.b!!(M, Y, p)
+end
+function get_vector_field!(
+        M::AbstractManifold, Y, slso::SymmetricLinearSystemObjective{AllocatingEvaluation}, p
+    )
+    copyto!(M, Y, p, slso.b!!(M, p))
+    return Y
+end
+function get_vector_field!(
+        M::AbstractManifold, Y, slso::SymmetricLinearSystemObjective{InplaceEvaluation}, p
+    )
+    return slso.b!!(M, Y, p)
+end
+#Also on TpM – shortcuts
+function get_vector_field(
+        TpM::TangentSpace, slso::SymmetricLinearSystemObjective{AllocatingEvaluation}
+    )
+    return slso.b!!(base_manifold(TpM), base_point(TpM))
+end
+function get_vector_field(TpM::TangentSpace, slso::SymmetricLinearSystemObjective{InplaceEvaluation})
+    M = base_manifold(TpM)
+    p = base_point(TpM)
+    Y = zero_vector(M, p)
+    return slso.b!!(M, Y, p)
+end
+function get_vector_field!(
+        TpM::TangentSpace, Y, slso::SymmetricLinearSystemObjective{AllocatingEvaluation}
+    )
+    M = base_manifold(TpM)
+    p = base_point(TpM)
+    return copyto!(M, Y, p, slso.b!!(M, p))
+end
+function get_vector_field!(TpM::TangentSpace, Y, slso::SymmetricLinearSystemObjective{InplaceEvaluation})
+    M = base_manifold(TpM)
+    p = base_point(TpM)
+    return slso.b!!(M, Y, p)
+end
+
+@doc """
+    ConjugateResidualState{T,R,TStop<:StoppingCriterion,C<:AbstractDict{Symbol}} <: AbstractManoptSolverState
 
 A state for the [`conjugate_residual`](@ref) solver.
 
 # Fields
 
 * `X::T`: the iterate
+* `callbacks::C`: the callbacks dictionary
 * `r::T`: the residual ``r = -b(p) - $(_tex(:Cal, "A"))(p)[X]``
 * `d::T`: the conjugate direction
 * `Ar::T`, `Ad::T`: storages for ``$(_tex(:Cal, "A"))(p)[d]``, ``$(_tex(:Cal, "A"))(p)[r]``
 * `rAr::R`: internal field for storing ``⟨ r, $(_tex(:Cal, "A"))(p)[r] ⟩``
 * `α::R`: a step length
 * `β::R`: the conjugate coefficient
-$(_var(:Field, :stopping_criterion, "stop"))
+$(_fields(:stopping_criterion; name = "stop"))
+* `warm_start`: whether to warm start or not when reusing this state, i.e.
+  * `true` (default): means we reuse the values in `X` on initialization and set the remaining terms accordingly. This involved one call to the objectives linear system and right hand side.
+  * `false`: Initialize `X` to the zero vector and hence `d=r=-b(p)`, but we avoid evaluating the linear operator.
 
 # Constructor
 
@@ -201,15 +285,17 @@ Initialise the state with default values.
 * `Ad=copy(TpM, Ar)`
 * `α::R=0.0`
 * `β::R=0.0`
-$(_var(:Keyword, :stopping_criterion; default = "[`StopAfterIteration`](@ref)`(`$(_link(:manifold_dimension))`)`$(_sc(:Any))[`StopWhenGradientNormLess`](@ref)`(1e-8)`"))
-$(_var(:Keyword, :X))
+$(_kwargs(:callbacks; show_type = false, add_properties = [:as_dict]))
+$(_kwargs(:stopping_criterion; default = "`[`StopAfterIteration`](@ref)`(`$(_link(:manifold_dimension))`)`$(_sc(:Any))[`StopWhenGradientNormLess`](@ref)`(1e-8)"))
+$(_kwargs(:X))
 
 # See also
 
 [`conjugate_residual`](@ref)
 """
-mutable struct ConjugateResidualState{T, R, TStop <: StoppingCriterion} <:
+mutable struct ConjugateResidualState{T, R, TStop <: StoppingCriterion, C <: AbstractDict{Symbol}} <:
     AbstractManoptSolverState
+    callbacks::C
     X::T
     r::T
     d::T
@@ -219,35 +305,32 @@ mutable struct ConjugateResidualState{T, R, TStop <: StoppingCriterion} <:
     α::R
     β::R
     stop::TStop
-    function ConjugateResidualState(
-            TpM::TangentSpace,
-            slso::SymmetricLinearSystemObjective;
-            X::T = rand(TpM),
-            r::T = (-get_gradient(TpM, slso, X)),
-            d::T = copy(TpM, r),
-            Ar::T = get_hessian(TpM, slso, X, r),
-            Ad::T = copy(TpM, Ar),
-            α::R = 0.0,
-            β::R = 0.0,
-            stopping_criterion::SC = StopAfterIteration(manifold_dimension(TpM)) |
-                StopWhenGradientNormLess(1.0e-8),
-            kwargs...,
-        ) where {T, R, SC <: StoppingCriterion}
-        M = base_manifold(TpM)
-        p = base_point(TpM)
-        crs = new{T, R, SC}()
-        crs.X = X
-        crs.r = r
-        crs.d = d
-        crs.Ar = Ar
-        crs.Ad = Ad
-        crs.α = α
-        crs.β = β
-        crs.rAr = zero(R)
-        crs.stop = stopping_criterion
+    warm_start::Bool
+    function ConjugateResidualState(;
+            callbacks::C, X::T, r::T, d::T, Ar::T, Ad::T, α::R, β::R, rAr::R, stopping_criterion::SC, warm_start::Bool
+        ) where {T, R, SC <: StoppingCriterion, C <: AbstractDict{Symbol}}
+        crs = new{T, R, SC, C}()
+        crs.callbacks = callbacks; crs.X = X; crs.r = r; crs.d = d; crs.Ar = Ar; crs.Ad = Ad
+        crs.α = α; crs.β = β; crs.rAr = rAr; crs.stop = stopping_criterion
+        crs.warm_start = warm_start
         return crs
     end
+    function ConjugateResidualState(
+            TpM::TangentSpace,
+            aslso::AbstractSymmetricLinearSystemObjective;
+            callbacks::C = Dict{Symbol, Function}(),
+            X::T = rand(TpM), r::T = (-get_gradient(TpM, aslso, X)), d::T = copy(TpM, r),
+            Ar::T = get_hessian(TpM, aslso, X, r), Ad::T = copy(TpM, Ar), α::Real = 0.0, β::Real = 0.0,
+            stopping_criterion::SC = StopAfterIteration(manifold_dimension(TpM)) | StopWhenGradientNormLess(1.0e-8),
+            warm_start::Bool = true,
+            kwargs...,
+        ) where {T, SC <: StoppingCriterion, C <: AbstractDict{Symbol}}
+        R = promote_type(typeof(α), typeof(β))
+        return ConjugateResidualState(; callbacks = callbacks, X = X, r = r, d = d, Ar = Ar, Ad = Ad, α = α, β = β, rAr = zero(R), stopping_criterion = stopping_criterion, warm_start = warm_start)
+    end
 end
+
+get_callbacks(crs::ConjugateResidualState) = crs.callbacks
 
 get_iterate(crs::ConjugateResidualState) = crs.X
 function set_iterate!(crs::ConjugateResidualState, ::AbstractManifold, X)
@@ -261,23 +344,32 @@ function set_gradient!(crs::ConjugateResidualState, ::AbstractManifold, r)
     return crs
 end
 
-function show(io::IO, crs::ConjugateResidualState)
+function status_summary(crs::ConjugateResidualState; context::Symbol = :default)
     i = get_count(crs, :Iterations)
     Iter = (i > 0) ? "After $i iterations\n" : ""
     Conv = indicates_convergence(crs.stop) ? "Yes" : "No"
+    _is_inline(context) && (return "$(repr(crs)) – $(Iter) $(has_converged(crs) ? "(converged)" : "")")
+    as = _callbacks_summary(crs)
     s = """
     # Solver state for `Manopt.jl`s Conjugate Residual Method
     $Iter
-    ## Parameters
+    ## Parameters$(as)
     * α: $(crs.α)
     * β: $(crs.β)
 
     ## Stopping criterion
-    $(status_summary(crs.stop))
-
+    $(_in_str(status_summary(crs.stop; context = context); indent = 0, headers = 1))
     This indicates convergence: $Conv
     """
-    return print(io, s)
+    return s
+end
+
+function Base.show(io::IO, crs::ConjugateResidualState)
+    print(io, "ConjugateResidualState(;")
+    print(io, " X = ", crs.X, ", d = ", crs.d, ", r = ", crs.r, ", α = ", crs.α, ", β = ", crs.β)
+    print(io, "Ar = ", crs.Ar, ", Ad = ", crs.Ad, ", rAr = ", crs.rAr)
+    print(io, ", stopping_criterion = ", status_summary(crs.stop; context = :short))
+    return print(io, ")")
 end
 
 #
@@ -290,7 +382,7 @@ Stop when re relative residual in the [`conjugate_residual`](@ref)
 is below a certain threshold, i.e.
 
 ```math
-$(_tex(:displaystyle))$(_tex(:frac, _tex(:norm, "r^{(k)"), "c")) ≤ ε,
+$(_tex(:displaystyle))$(_tex(:frac, _tex(:norm, "r^{(k)}"), "c")) ≤ ε,
 ```
 
 where ``c = $(_tex(:norm, "b"))`` of the initial vector from the vector field in ``$(_tex(:Cal, "A"))(p)[X] + b(p) = 0_p``,
@@ -298,7 +390,7 @@ from the [`conjugate_residual`](@ref)
 
 # Fields
 
-$(_var(:Field, :at_iteration))
+$(_fields(:at_iteration))
 * `c`: the initial norm
 * `ε`: the threshold
 * `norm_rk`: the last computed norm of the residual
@@ -334,7 +426,7 @@ function (swrr::StopWhenRelativeResidualLess)(
     swrr.norm_r = norm(M, p, crs.r)
     if k <= 0
         # on init also update the right hand side norm
-        swrr.c = norm(M, p, get_b(TpM, get_objective(amp)))
+        swrr.c = norm(M, p, get_vector_field(M, get_objective(amp), p))
         return false # just init the norm, but do not stop
     end
     # now k > 0
@@ -350,15 +442,12 @@ function get_reason(swrr::StopWhenRelativeResidualLess)
     end
     return ""
 end
-function status_summary(swrr::StopWhenRelativeResidualLess)
+function status_summary(swrr::StopWhenRelativeResidualLess; context::Symbol = :default)
     has_stopped = (swrr.at_iteration >= 0)
     s = has_stopped ? "reached" : "not reached"
-    return "‖r^(k)‖ / c < ε:\t$s"
+    return _is_inline(context) ? "‖r^(k)‖ / c < ε:$(_MANOPT_INDENT)$s" : "A stopping criterion to stop when the relative residual is less than the threshold of $(swrr.ε)\n$(_MANOPT_INDENT)$s"
 end
 indicates_convergence(::StopWhenRelativeResidualLess) = true
 function show(io::IO, swrr::StopWhenRelativeResidualLess)
-    return print(
-        io,
-        "StopWhenRelativeResidualLess($(swrr.c), $(swrr.ε))\n    $(status_summary(swrr))",
-    )
+    return print(io, "StopWhenRelativeResidualLess($(swrr.c), $(swrr.ε))")
 end

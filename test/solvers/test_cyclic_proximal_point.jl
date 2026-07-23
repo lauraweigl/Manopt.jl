@@ -1,19 +1,15 @@
-s = joinpath(@__DIR__, "..", "ManoptTestSuite.jl")
-!(s in LOAD_PATH) && (push!(LOAD_PATH, s))
-
 using Manifolds, Manopt, Test, Dates, LRUCache
 using ManifoldDiff: prox_distance, prox_distance!
-using ManoptTestSuite
 
 @testset "Cyclic Proximal Point" begin
     @testset "Allocating" begin
         n = 100
         N = PowerManifold(Circle(), n)
         q = [exp(Circle(), 0, X) for X in range(0, 3π; length = n)]
-        f(M, p) = ManoptTestSuite.L2_Total_Variation(M, q, 0.5, p)
+        f(M, p) = Manopt.Test.L2_Total_Variation(M, q, 0.5, p)
         proxes = (
             (N, λ, p) -> prox_distance(N, λ, q, p),
-            (N, λ, p) -> ManoptTestSuite.prox_Total_Variation(N, 0.5 * λ, p),
+            (N, λ, p) -> Manopt.Test.prox_Total_Variation(N, 0.5 * λ, p),
         )
         q2 = cyclic_proximal_point(
             N, f, proxes, q; λ = i -> π / (2 * i), stopping_criterion = StopAfterIteration(100)
@@ -57,23 +53,20 @@ using ManoptTestSuite
                     π / 2.0 * (cos(t) * sin(t) / (sin(t)^2 + 1.0)) * [0.0, 1.0, 0.0],
                 ) for t in range(0, 2π; length = n)
         ]
-        f(N, p) = ManoptTestSuite.L2_Total_Variation(N, q, 0.5, p)
+        f(N, p) = Manopt.Test.L2_Total_Variation(N, q, 0.5, p)
         proxes! = (
             (N, qr, λ, p) -> prox_distance!(N, qr, λ, q, p),
-            (N, q, λ, p) -> ManoptTestSuite.prox_Total_Variation!(N, q, 0.5 * λ, p),
+            (N, q, λ, p) -> Manopt.Test.prox_Total_Variation!(N, q, 0.5 * λ, p),
         )
         proxes = (
             (N, λ, p) -> prox_distance(N, λ, q, p),
-            (N, λ, p) -> ManoptTestSuite.prox_Total_Variation(N, 0.5 * λ, p),
+            (N, λ, p) -> Manopt.Test.prox_Total_Variation(N, 0.5 * λ, p),
         )
         s1 = cyclic_proximal_point(
             N, f, proxes, q; λ = i -> π / (2 * i), stopping_criterion = StopAfterIteration(100)
         )
         r = cyclic_proximal_point(
-            N,
-            f,
-            proxes!,
-            q;
+            N, f, proxes!, q;
             λ = i -> π / (2 * i),
             stopping_criterion = StopAfterIteration(100),
             evaluation = InplaceEvaluation(),
@@ -82,14 +75,13 @@ using ManoptTestSuite
         s2 = get_solver_result(r)
         @test isapprox(N, s1, s2)
         @test startswith(
-            repr(r), "# Solver state for `Manopt.jl`s Cyclic Proximal Point Algorithm"
+            Manopt.status_summary(r; context = :default),
+            "# Solver state for `Manopt.jl`s Cyclic Proximal Point Algorithm"
         )
+        @test startswith(repr(r), "CyclicProximalPointState(; ")
         @testset "Caching" begin
             r2 = cyclic_proximal_point(
-                N,
-                f,
-                proxes!,
-                q;
+                N, f, proxes!, q;
                 λ = i -> π / (2 * i),
                 cache = (:LRU, [:Cost, :ProximalMap], 50),
                 stopping_criterion = StopAfterIteration(100),
@@ -97,6 +89,18 @@ using ManoptTestSuite
                 return_state = true,
                 return_objective = true,
             )
+        end
+        @testset "Callbacks" begin
+            sk_record = Tuple{Symbol, Int}[]
+            cb(symbol, problem, state, k) = append!(sk_record, [(symbol, k)])
+            s1 = cyclic_proximal_point(
+                N, f, proxes, q; λ = i -> π / (2 * i),
+                callbacks = cb, stopping_criterion = StopAfterIteration(1)
+            )
+            @test sk_record == [
+                (:BeforeInit, 0), (:Init, 0), (:BeforeStop, 0),
+                (:BeforeStep, 1), (:Step, 1), (:BeforeStop, 1), (:Stop, 1),
+            ]
         end
     end
     @testset "Problem access functions" begin
@@ -111,14 +115,14 @@ using ManoptTestSuite
                     π / 2.0 * (cos(t) * sin(t) / (sin(t)^2 + 1.0)) * [0.0, 1.0, 0.0],
                 ) for t in range(0, 2π; length = n)
         ]
-        f(N, x) = ManoptTestSuite.L2_Total_Variation(N, q, 0.5, x)
+        f(N, x) = Manopt.Test.L2_Total_Variation(N, q, 0.5, x)
         proxes! = (
             (N, qr, λ, p) -> prox_distance!(N, qr, λ, q, p),
-            (N, q, λ, p) -> ManoptTestSuite.prox_Total_Variation!(N, q, 0.5 * λ, p),
+            (N, q, λ, p) -> Manopt.Test.prox_Total_Variation!(N, q, 0.5 * λ, p),
         )
         proxes = (
             (N, λ, p) -> prox_distance(N, λ, q, p),
-            (N, λ, p) -> ManoptTestSuite.prox_Total_Variation(N, 0.5 * λ, p),
+            (N, λ, p) -> Manopt.Test.prox_Total_Variation(N, 0.5 * λ, p),
         )
         for i in 1:2
             mpo1 = ManifoldProximalMapObjective(f, proxes)
@@ -145,10 +149,10 @@ using ManoptTestSuite
         M = Euclidean(3)
         p = ones(3)
         O = CyclicProximalPointState(M; p = p)
-        f(M, p) = ManoptTestSuite.L2_Total_Variation(M, q, 0.5, p)
+        f(M, p) = Manopt.Test.L2_Total_Variation(M, q, 0.5, p)
         proxes = (
             (M, λ, p) -> prox_distance(M, λ, q, p),
-            (M, λ, p) -> ManoptTestSuite.prox_Total_Variation(M, 0.5 * λ, p),
+            (M, λ, p) -> Manopt.Test.prox_Total_Variation(M, 0.5 * λ, p),
         )
         s = CyclicProximalPointState(
             M; p = p, stopping_criterion = StopAfterIteration(1), λ = i -> i

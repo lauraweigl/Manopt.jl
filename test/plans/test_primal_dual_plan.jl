@@ -1,7 +1,4 @@
-s = joinpath(@__DIR__, "..", "ManoptTestSuite.jl")
-!(s in LOAD_PATH) && (push!(LOAD_PATH, s))
-
-using Manifolds, ManifoldDiff, ManifoldsBase, Manopt, ManoptTestSuite, Test
+using Manifolds, ManifoldDiff, ManifoldsBase, Manopt, Test
 using RecursiveArrayTools
 
 @testset "Test primal dual plan" begin
@@ -17,12 +14,12 @@ using RecursiveArrayTools
     x_hat = shortest_geodesic(M, data, reverse(data), δ)
     N = TangentBundle(M)
     fidelity(M, x) = 1 / 2 * distance(M, x, f)^2
-    Λ(M, x) = ArrayPartition(x, ManoptTestSuite.forward_logs(M, x))
+    Λ(M, x) = ArrayPartition(x, Manopt.Test.forward_logs(M, x))
     function Λ!(M, Y, x)
         N = TangentBundle(M)
         copyto!(M, Y[N, :point], x)
         zero_vector!(N.manifold, Y[N, :vector], Y[N, :point])
-        ManoptTestSuite.forward_logs!(M, Y[N, :vector], x)
+        Manopt.Test.forward_logs!(M, Y[N, :vector], x)
         return Y
     end
     prior(M, x) = norm(norm.(Ref(pixelM), x, (Λ(M, x))[N, :vector]), 1)
@@ -32,34 +29,34 @@ using RecursiveArrayTools
     function prox_g_dual(N, n, λ, ξ)
         return ArrayPartition(
             ξ[N, :point],
-            ManoptTestSuite.project_collaborative_TV(
+            Manopt.Test.project_collaborative_TV(
                 base_manifold(N), λ, n[N, :point], ξ[N, :vector], Inf, Inf, 1.0
             ),
         )
     end
     function prox_g_dual!(N, η, n, λ, ξ)
         η[N, :point] .= ξ[N, :point]
-        ManoptTestSuite.project_collaborative_TV!(
+        Manopt.Test.project_collaborative_TV!(
             base_manifold(N), η[N, :vector], λ, n[N, :point], ξ[N, :vector], Inf, Inf, 1.0
         )
         return η
     end
     DΛ(M, m, X) = ArrayPartition(
-        zero_vector(M, m), ManoptTestSuite.differential_forward_logs(M, m, X)
+        zero_vector(M, m), Manopt.Test.differential_forward_logs(M, m, X)
     )
     function DΛ!(M, Y, m, X)
         N = TangentBundle(M)
         zero_vector!(M, Y[N, :point], m)
-        ManoptTestSuite.differential_forward_logs!(M, Y[N, :vector], m, X)
+        Manopt.Test.differential_forward_logs!(M, Y[N, :vector], m, X)
         return Y
     end
     function adjoint_DΛ(N, m, n, Y)
-        return ManoptTestSuite.adjoint_differential_forward_logs(
+        return Manopt.Test.adjoint_differential_forward_logs(
             N.manifold, m, Y[N, :vector]
         )
     end
     function adjoint_DΛ!(N, X, m, n, Y)
-        return ManoptTestSuite.adjoint_differential_forward_logs!(
+        return Manopt.Test.adjoint_differential_forward_logs!(
             N.manifold, X, m, Y[N, :vector]
         )
     end
@@ -85,18 +82,18 @@ using RecursiveArrayTools
     @test all(get_iterate(s_exact) .== p0)
 
     osm = PrimalDualSemismoothNewtonState(
-        M;
-        m = m,
-        n = n,
-        p = zero.(p0),
-        X = X0,
-        primal_stepsize = 0.0,
-        dual_stepsize = 0.0,
-        regularization_parameter = 0.0,
+        M; m = m, n = n, p = zero.(p0), X = X0,
+        primal_stepsize = 0.0, dual_stepsize = 0.0, regularization_parameter = 0.0,
     )
     set_iterate!(osm, p0)
     @test all(get_iterate(osm) .== p0)
 
+    @testset "show/repr" begin
+        for o in [pdmol, pdmoe]
+            @test startswith(Manopt.status_summary(o), "A primal dual objective")
+            @test startswith(repr(o), "PrimalDualManifoldObjective(")
+        end
+    end
     @testset "test Mutating/Allocation Problem Variants" begin
         pdmoa = PrimalDualManifoldObjective(
             f, prox_f, prox_g_dual, adjoint_DΛ; linearized_forward_operator = DΛ, Λ = Λ
@@ -193,16 +190,22 @@ using RecursiveArrayTools
         d1(p_exact, s_exact, 1)
         s = String(take!(io))
         @test startswith(s, "Dual Residual:")
+        @test startswith(Manopt.status_summary(d1), "A DebugAction to print the dual residual with format")
+        @test startswith(repr(d1), "DebugDualResidual(; ")
 
         d2 = DebugPrimalResidual(; storage = a, io = io)
         d2(p_exact, s_exact, 1)
         s = String(take!(io))
         @test startswith(s, "Primal Residual: ")
+        @test startswith(Manopt.status_summary(d2), "A DebugAction to print the primal residual with format")
+        @test startswith(repr(d2), "DebugPrimalResidual(; ")
 
         d3 = DebugPrimalDualResidual(; storage = a, io = io)
         d3(p_exact, s_exact, 1)
         s = String(take!(io))
         @test startswith(s, "PD Residual: ")
+        @test startswith(Manopt.status_summary(d3), "A DebugAction to print the primal dual residual with format")
+        @test startswith(repr(d3), "DebugPrimalDualResidual(; ")
 
         d4 = DebugPrimalChange(; storage = a, prefix = "Primal Change: ", io = io)
         d4(p_exact, s_exact, 1)
@@ -223,6 +226,8 @@ using RecursiveArrayTools
         d7(p_exact, s_exact, 1)
         s = String(take!(io))
         @test startswith(s, "Dual Change:")
+        @test startswith(repr(d7), "DebugDualChange(; ")
+        @test startswith(Manopt.status_summary(d7), "A DebugAction to print the change of the dual variable")
 
         d7a = DebugDualChange((X0, n); storage = a, io = io)
         d7a(p_exact, s_exact, 1)
@@ -288,7 +293,7 @@ using RecursiveArrayTools
         pdmo = PrimalDualManifoldObjective(
             f, prox_f, prox_g_dual, adjoint_DΛ; Λ = Λ, linearized_forward_operator = DΛ
         )
-        ro = ManoptTestSuite.DummyDecoratedObjective(pdmo)
+        ro = Manopt.Test.DummyDecoratedObjective(pdmo)
         q1 = get_primal_prox(M, ro, 0.1, p0)
         q2 = get_primal_prox(M, pdmo, 0.1, p0)
         @test q1 == q2

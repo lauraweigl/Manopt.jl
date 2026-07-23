@@ -1,10 +1,11 @@
-s = joinpath(@__DIR__, "ManoptTestSuite.jl")
-!(s in LOAD_PATH) && (push!(LOAD_PATH, s))
-
-using Manifolds, ManifoldsBase, Manopt, ManoptTestSuite, Test
+using Manifolds, ManifoldsBase, Manopt, Test
 
 @testset "Manopt.jl" begin
-    @testset "Plan Tests         " begin
+    @test Manopt.Rn_default() === :Manifolds
+    @testset "Base Interface tests" begin
+        include("base/test_callbacks.jl")
+    end
+    @testset "Plan Tests          " begin
         include("plans/test_objective.jl")
         include("plans/test_problem.jl")
         include("plans/test_state.jl")
@@ -30,6 +31,7 @@ using Manifolds, ManifoldsBase, Manopt, ManoptTestSuite, Test
         include("plans/test_higher_order_primal_dual_plan.jl")
         include("plans/test_defaults_factory.jl")
         include("plans/test_record.jl")
+        include("plans/test_robustifiers.jl")
         include("plans/test_scaled_objective.jl")
         include("plans/test_stepsize.jl")
         include("plans/test_stochastic_gradient_plan.jl")
@@ -38,12 +40,12 @@ using Manifolds, ManifoldsBase, Manopt, ManoptTestSuite, Test
         include("plans/test_subgradient_plan.jl")
         include("plans/test_vectorial_plan.jl")
     end
-    @testset "Helper Tests       " begin
+    @testset "Helper Tests        " begin
         include("helpers/test_checks.jl")
         include("helpers/test_linesearches.jl")
         include("helpers/test_manifold_extra_functions.jl")
     end
-    @testset "Solver Tests       " begin
+    @testset "Solver Tests        " begin
         include("solvers/test_adaptive_regularization_with_cubics.jl")
         include("solvers/test_alternating_gradient.jl")
         include("solvers/test_augmented_lagrangian.jl")
@@ -58,6 +60,7 @@ using Manifolds, ManifoldsBase, Manopt, ManoptTestSuite, Test
         include("solvers/test_exact_penalty.jl")
         include("solvers/test_Frank_Wolfe.jl")
         include("solvers/test_gradient_descent.jl")
+        include("solvers/test_gradient_sampling.jl")
         include("solvers/test_interior_point_Newton.jl")
         include("solvers/test_Levenberg_Marquardt.jl")
         include("solvers/test_mesh_adaptive_direct_search.jl")
@@ -67,6 +70,7 @@ using Manifolds, ManifoldsBase, Manopt, ManoptTestSuite, Test
         include("solvers/test_proximal_gradient_method.jl")
         include("solvers/test_proximal_point.jl")
         include("solvers/test_quasi_Newton.jl")
+        include("solvers/test_quasi_Newton_box.jl")
         include("solvers/test_particle_swarm.jl")
         include("solvers/test_primal_dual_semismooth_Newton.jl")
         include("solvers/test_stochastic_gradient_descent.jl")
@@ -75,7 +79,6 @@ using Manifolds, ManifoldsBase, Manopt, ManoptTestSuite, Test
         include("solvers/test_trust_regions.jl")
         include("solvers/test_vectorbundle_newton.jl")
     end
-    include("MOI_wrapper.jl")
     include("test_aqua.jl")
     include("test_deprecated.jl")
 end

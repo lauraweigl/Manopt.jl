@@ -1,7 +1,4 @@
-s = joinpath(@__DIR__, "..", "ManoptTestSuite.jl")
-!(s in LOAD_PATH) && (push!(LOAD_PATH, s))
-
-using LinearAlgebra, Manifolds, Manopt, ManoptTestSuite, Random, Test
+using LinearAlgebra, Manifolds, Manopt, Random, Test
 
 include("trust_region_model.jl")
 
@@ -28,11 +25,14 @@ include("trust_region_model.jl")
         X = rgrad(M, p)
         TpM = TangentSpace(M, copy(M, p))
         mho = ManifoldHessianObjective(f, rgrad, rhess)
-        sub_problem = DefaultManoptProblem(TpM, TrustRegionModelObjective(mho))
+        sub_objective = TrustRegionModelObjective(mho)
+        sub_problem = DefaultManoptProblem(TpM, sub_objective)
         sub_state = TruncatedConjugateGradientState(TpM; X = get_gradient(M, mho, p))
         trs1 = TrustRegionsState(M, sub_problem)
         trs2 = TrustRegionsState(M, sub_problem, sub_state)
+        @test_throws ErrorException TrustRegionsState(M, sub_state)
         trs3 = TrustRegionsState(M, sub_problem; p = p)
+        @test Manopt.get_gradient_function(sub_objective)(M, p) == X
     end
     @testset "Objective accessors" begin
         mho = ManifoldHessianObjective(f, rgrad, rhess)
@@ -50,12 +50,20 @@ include("trust_region_model.jl")
         @test get_hessian(TpM, trmo, Y, X) == H
         get_hessian!(TpM, Y, trmo, Y, X)
         @test Y == H
+        @test startswith(repr(trmo), "TrustRegionModelObjective(")
+        @test startswith(Manopt.status_summary(trmo), "The trust region model for ")
     end
     @testset "Allocating Variant" begin
         s = trust_regions(
             M, f, rgrad, rhess, p; max_trust_region_radius = 8.0, return_state = true
         )
-        @test startswith(repr(s), "# Solver state for `Manopt.jl`s Trust Region Method\n")
+        @test startswith(
+            Manopt.status_summary(s; context = :default),
+            "# Solver state for `Manopt.jl`s Trust Region Method\n"
+        )
+        @test startswith(repr(s), "TrustRegionsState(")
+        # not a random one -> does not contain HZ
+        @test !contains(repr(s), "HZ = ")
         p1 = get_solver_result(s)
         q = copy(M, p)
         set_gradient!(s, M, p, zero_vector(M, p))
@@ -63,28 +71,24 @@ include("trust_region_model.jl")
         trust_regions!(M, f, rgrad, rhess, q; max_trust_region_radius = 8.0)
         @test isapprox(M, p1, q)
         Random.seed!(42)
-        p2 = trust_regions(
-            M, f, rgrad, rhess, p; max_trust_region_radius = 8.0, randomize = true
+        s2 = trust_regions(
+            M, f, rgrad, rhess, p; max_trust_region_radius = 8.0, randomize = true, return_state = true
         )
+        @test startswith(repr(s2), "TrustRegionsState(")
+        # a random one -> does contain HZ
+        @test contains(repr(s2), "HZ = ")
 
+        p2 = get_solver_result(s2)
         @test f(M, p2) ≈ f(M, p1)
 
         p3 = trust_regions(
-            M,
-            f,
-            rgrad,
-            p;
-            max_trust_region_radius = 8.0,
+            M, f, rgrad, p; max_trust_region_radius = 8.0,
             stopping_criterion = StopAfterIteration(2000) | StopWhenGradientNormLess(1.0e-6),
         )
         q2 = copy(M, p)
         trust_regions!(
-            M,
-            f,
-            rgrad,
-            q2;
+            M, f, rgrad, q2; max_trust_region_radius = 8.0,
             stopping_criterion = StopAfterIteration(2000) | StopWhenGradientNormLess(1.0e-6),
-            max_trust_region_radius = 8.0,
         )
         @test isapprox(M, p3, q2; atol = 1.0e-6)
         @test f(M, p3) ≈ f(M, p1)
@@ -326,7 +330,7 @@ include("trust_region_model.jl")
         end
     end
     @testset "on the Circle" begin
-        Mc, fc, grad_fc, pc0, pc_star = ManoptTestSuite.Circle_mean_task()
+        Mc, fc, grad_fc, pc0, pc_star = Manopt.Test.Circle_mean_task()
         hess_fc(Mc, p, X) = 1.0
         s = trust_regions(Mc, fc, grad_fc, hess_fc; return_state = true)
         q = get_solver_result(s)
@@ -359,5 +363,14 @@ include("trust_region_model.jl")
         q4 = trust_regions(M, f, grad_f, Hess_f, p0)
         @test f(M, q3) ≈ λ atol = 5 * 1.0e-8
         @test f(M, q4) ≈ λ atol = 5 * 1.0e-10
+    end
+
+    @testset "Float32 support" begin
+        M = Euclidean(3, 3)
+        p = randn(Float32, 3, 3)
+        f(M::Euclidean, p) = sum(p .^ 2) / 2
+        grad(M::Euclidean, p) = p
+        hess(M::Euclidean, p, X) = X
+        trust_regions(M, f, grad, hess, p; max_trust_region_radius = 0.1f0)
     end
 end

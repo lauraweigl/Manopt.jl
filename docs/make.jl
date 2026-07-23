@@ -38,13 +38,15 @@ tutorials_menu =
     "🏔️ Get started with Manopt.jl" => "tutorials/getstarted.md",
     "Speedup using in-place computations" => "tutorials/InplaceGradient.md",
     "Use automatic differentiation" => "tutorials/AutomaticDifferentiation.md",
-    "Define objectives in the embedding" => "tutorials/EmbeddingObjectives.md",
+    "Obtain the Riemannian gradient and Hessian" => "tutorials/EmbeddingObjectives.md",
     "Count and use a cache" => "tutorials/CountAndCache.md",
     "Print debug output" => "tutorials/HowToDebug.md",
     "Record values" => "tutorials/HowToRecord.md",
+    "Use callbacks" => "tutorials/HowToCallback.md",
     "Implement a solver" => "tutorials/ImplementASolver.md",
     "Optimize on your own manifold" => "tutorials/ImplementOwnManifold.md",
     "Do constrained optimization" => "tutorials/ConstrainedOptimization.md",
+    "Do optimization with bounds" => "tutorials/BoxDomain.md",
 ]
 # Check whether all tutorials are rendered, issue a warning if not (and quarto if not set)
 all_tutorials_exist = true
@@ -101,7 +103,7 @@ end
 # (c) load necessary packages for the docs
 using Documenter
 using DocumenterCitations, DocumenterInterLinks
-using JuMP, LineSearches, LRUCache, Manopt, Manifolds, Plots, RecursiveArrayTools
+using LineSearches, LRUCache, Manopt, Manifolds, Plots, RecursiveArrayTools
 using RipQP, QuadraticModels
 
 # (d) add contributing.md and changelog.md to the docs – and link to releases and issues
@@ -156,12 +158,12 @@ makedocs(;
     format = Documenter.HTML(;
         prettyurls = run_on_CI || ("--prettyurls" ∈ ARGS),
         assets = ["assets/favicon.ico", "assets/citations.css", "assets/link-icons.css"],
-        size_threshold_warn = 250 * 2^10, # raise slightly from 100 to 200 KiB
-        size_threshold = 350 * 2^10,      # raise slightly 200 to to 300 KiB
+        size_threshold = 1100 * 2^10,      # raise slightly 200 to to 300 KiB
+        size_threshold_warn = 900 * 2^10, # raise from 500 KiB to 1.1 MB (for search index)
+        search_size_threshold_warn = 2000 * 2^10,
     ),
     modules = [
         Manopt,
-        Base.get_extension(Manopt, :ManoptJuMPExt),
         Base.get_extension(Manopt, :ManoptLineSearchesExt),
         Base.get_extension(Manopt, :ManoptLRUCacheExt),
         Base.get_extension(Manopt, :ManoptManifoldsExt),
@@ -175,7 +177,7 @@ makedocs(;
         (tutorials_in_menu ? [tutorials_menu] : [])...,
         "Solvers" => [
             "List of Solvers" => "solvers/index.md",
-            "Adaptive Regularization with Cubics" => "solvers/adaptive-regularization-with-cubics.md",
+            "Adaptive Regularization with Cubics" => "solvers/adaptive_regularization_with_cubics.md",
             "Alternating Gradient Descent" => "solvers/alternating_gradient_descent.md",
             "Augmented Lagrangian Method" => "solvers/augmented_Lagrangian_method.md",
             "Chambolle-Pock" => "solvers/ChambollePock.md",
@@ -188,7 +190,9 @@ makedocs(;
             "Douglas—Rachford" => "solvers/DouglasRachford.md",
             "Exact Penalty Method" => "solvers/exact_penalty_method.md",
             "Frank-Wolfe" => "solvers/FrankWolfe.md",
+            "Generalized Cauchy direction subsolver" => "solvers/generalized_cauchy_direction_subsolver.md",
             "Gradient Descent" => "solvers/gradient_descent.md",
+            "Gradient Sampling" => "solvers/gradient_sampling.md",
             "Interior Point Newton" => "solvers/interior_point_Newton.md",
             "Levenberg–Marquardt" => "solvers/LevenbergMarquardt.md",
             "Mesh Adaptive Direct Search" => "solvers/mesh_adaptive_direct_search.md",
@@ -205,17 +209,45 @@ makedocs(;
             "Trust-Regions Solver" => "solvers/trust_regions.md",
             "Vector Bundle Newton Method" => "solvers/vectorbundle_newton.md",
         ],
-        "Plans" => [
+        "Commons (WIP)" => [
+            "Overview" => "commons/index.md",
+            "Debug Outputs" => "commons/debugs.md",
+        ],
+        "Plans (deprecated)" => [
             "Specify a Solver" => "plans/index.md",
             "Problem" => "plans/problem.md",
-            "Objective" => "plans/objective.md",
+            "Objective" => [
+                "Cost objectvies" => "plans/objectives/cost.md",
+                "First-order objectives" => "plans/objectives/first_order.md",
+                "Second-order objectives" => "plans/objectives/second_order.md",
+                "Constrained objectives" => "plans/objectives/constrained.md",
+                "Splitting-based objectives" => "plans/objectives/splitting_based.md",
+                "Subproblem objectives" => "plans/objectives/sub.md",
+                "Vectorial objectives" => "plans/objectives/vectorial.md",
+                "Linear Systems" => "plans/objectives/linear_system.md",
+                "Decorators for objectives" => "plans/objectives/decorated.md",
+            ],
             "Solver State" => "plans/state.md",
             "Stepsize" => "plans/stepsize.md",
             "Stopping Criteria" => "plans/stopping_criteria.md",
-            "Debug Output" => "plans/debug.md",
             "Recording values" => "plans/record.md",
         ],
-        "Helpers" => ["Checks" => "helpers/checks.md", "Exports" => "helpers/exports.md"],
+        "Developer Guide (WIP)" => [
+            "Introduction" => "base/index.md",
+            "Problem" => "base/problem.md",
+            "Objective" => "base/objective.md",
+            "Solver State" => [
+                "Overview" => "base/state.md",
+                "Action" => "base/state/action.md",
+                "Callback" => "base/state/callback.md",
+                "Debug" => "base/state/debug.md",
+                "Decorator" => "base/state/decorator.md",
+            ],
+        ],
+        "Helpers" => [
+            "Checks" => "helpers/checks.md",
+            "Test" => "helpers/test.md",
+        ],
         "Contributing to Manopt.jl" => "contributing.md",
         "Extensions" => "extensions.md",
         "Notation" => "notation.md",

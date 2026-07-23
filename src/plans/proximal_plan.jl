@@ -11,9 +11,9 @@ which represents proximal maps ``$(_tex(:prox))_{λf_i}`` for summands ``f = f_1
 
 # Fields
 
-* `cost`: a function ``f:$(_tex(:Cal, "M"))→ℝ`` to
+* `cost`: a function ``f:$(_math(:Manifold))→ℝ`` to
   minimize
-* `proxes`: proximal maps ``$(_tex(:prox))_{λf_i}:$(_tex(:Cal, "M")) → $(_tex(:Cal, "M"))``
+* `proxes`: proximal maps ``$(_tex(:prox))_{λf_i}:$(_math(:Manifold)) → $(_math(:Manifold))``
   as functions `(M, λ, p) -> q` or in-place `(M, q, λ, p)`.
 * `number_of_proxes`: number of proximal maps per function,
   to specify when one of the maps is a combined one such that the proximal maps
@@ -22,10 +22,10 @@ which represents proximal maps ``$(_tex(:prox))_{λf_i}`` for summands ``f = f_1
 
 # Constructor
 
-    ManifoldProximalMapObjective(f, proxes_f::Union{Tuple,AbstractVector}, numer_of_proxes=onex(length(proxes));
+    ManifoldProximalMapObjective(f, proxes_f::Union{Tuple,AbstractVector}, number_of_proxes=onex(length(proxes));
        evaluation=Allocating)
 
-Generate a proximal problem with a tuple or vector of funtions, where by default every function computes a single prox
+Generate a proximal problem with a tuple or vector of functions, where by default every function computes a single prox
 of one component of ``f``.
 
     ManifoldProximalMapObjective(f, prox_f); evaluation=Allocating)
@@ -112,9 +112,7 @@ end
 function get_proximal_map(
         M::AbstractManifold,
         mpo::ManifoldProximalMapObjective{AllocatingEvaluation, F, <:Union{<:Tuple, <:Vector}},
-        λ,
-        p,
-        i,
+        λ, p, i,
     ) where {F}
     check_prox_number(mpo.proximal_maps!!, i)
     return mpo.proximal_maps!![i](M, λ, p)
@@ -128,9 +126,7 @@ function get_proximal_map!(
         M::AbstractManifold,
         q,
         mpo::ManifoldProximalMapObjective{AllocatingEvaluation, F, <:Union{<:Tuple, <:Vector}},
-        λ,
-        p,
-        i,
+        λ, p, i,
     ) where {F}
     check_prox_number(mpo.proximal_maps!!, i)
     copyto!(M, q, mpo.proximal_maps!![i](M, λ, p))
@@ -144,9 +140,7 @@ end
 function get_proximal_map(
         M::AbstractManifold,
         mpo::ManifoldProximalMapObjective{InplaceEvaluation, F, <:Union{<:Tuple, <:Vector}},
-        λ,
-        p,
-        i,
+        λ, p, i,
     ) where {F}
     check_prox_number(mpo.proximal_maps!!, i)
     q = allocate_result(M, get_proximal_map, p)
@@ -154,12 +148,9 @@ function get_proximal_map(
     return q
 end
 function get_proximal_map!(
-        M::AbstractManifold,
-        q,
+        M::AbstractManifold, q,
         mpo::ManifoldProximalMapObjective{InplaceEvaluation, F, <:Union{<:Tuple, <:Vector}},
-        λ,
-        p,
-        i,
+        λ, p, i,
     ) where {F}
     check_prox_number(mpo.proximal_maps!!, i)
     mpo.proximal_maps!![i](M, q, λ, p)
@@ -192,67 +183,14 @@ function get_proximal_map!(
     mpo.proximal_maps!!(M, q, λ, p)
     return q
 end
-#
-#
-# Proximal based State
-#
-#
-@doc """
-    CyclicProximalPointState <: AbstractManoptSolverState
-
-stores options for the [`cyclic_proximal_point`](@ref) algorithm. These are the
-
-# Fields
-
-$(_var(:Field, :p; add = [:as_Iterate]))
-$(_var(:Field, :stopping_criterion, "stop"))
-* `λ`:         a function for the values of ``λ_k`` per iteration(cycle ``k``
-* `oder_type`: whether to use a randomly permuted sequence (`:FixedRandomOrder`),
-  a per cycle permuted sequence (`:RandomOrder`) or the default linear one.
-
-# Constructor
-
-    CyclicProximalPointState(M::AbstractManifold; kwargs...)
-
-Generate the options
-
-## Input
-
-$(_var(:Argument, :M; type = true))
-
-# Keyword arguments
-
-* `evaluation_order=:LinearOrder`: soecify the `order_type`
-* `λ=i -> 1.0 / i` a function to compute the ``λ_k, k ∈ $(_tex(:Cal, "N"))``,
-$(_var(:Keyword, :p; add = :as_Initial))
-$(_var(:Keyword, :stopping_criterion; default = "[`StopAfterIteration`](@ref)`(2000)`"))
-
-# See also
-
-[`cyclic_proximal_point`](@ref)
-"""
-mutable struct CyclicProximalPointState{P, TStop <: StoppingCriterion, Tλ} <:
-    AbstractManoptSolverState
-    p::P
-    stop::TStop
-    λ::Tλ
-    order_type::Symbol
-    order::AbstractVector{Int}
+function status_summary(mpo::ManifoldProximalMapObjective; context::Symbol = :default)
+    (context === :short) && (return repr(mpo))
+    return "A proximal map objective for a cost with $(mpo.number_of_proxes) proximal maps"
 end
-
-function CyclicProximalPointState(
-        M::AbstractManifold;
-        p::P = rand(M),
-        stopping_criterion::S = StopAfterIteration(2000),
-        λ::F = (i) -> 1.0 / i,
-        evaluation_order::Symbol = :LinearOrder,
-    ) where {P, S, F}
-    return CyclicProximalPointState{P, S, F}(p, stopping_criterion, λ, evaluation_order, [])
-end
-get_iterate(cpps::CyclicProximalPointState) = cpps.p
-function set_iterate!(cpps::CyclicProximalPointState, p)
-    cpps.p = p
-    return p
+function Base.show(io::IO, mpo::ManifoldProximalMapObjective{E}) where {E}
+    print(io, "ManifoldProximalMapObjective(", mpo.cost, ", ", mpo.proximal_maps!!, ", ")
+    print(io, mpo.number_of_proxes, "; ", _to_kw(E))
+    return print(io, ")")
 end
 
 #
@@ -269,36 +207,44 @@ print the current iterates proximal point algorithm parameter given by
 mutable struct DebugProximalParameter <: DebugAction
     io::IO
     format::String
+    at_init::Bool
     function DebugProximalParameter(;
             long::Bool = false,
             prefix = long ? "Proximal Map Parameter λ(i):" : "λ:",
             format = "$prefix%s",
             io::IO = stdout,
+            at_init::Bool = true,
         )
-        return new(io, format)
+        return new(io, format, at_init)
     end
 end
-function (d::DebugProximalParameter)(
-        ::AbstractManoptProblem, cpps::CyclicProximalPointState, k::Int
+function Base.show(io::IO, d::DebugProximalParameter)
+    return print(
+        io, "DebugGradientChange(; io = ", d.io, ", format=\"$(escape_string(d.format))\", at_init = $(d.at_init))",
     )
-    (k > 0) && Printf.format(d.io, Printf.Format(d.format), cpps.λ(k))
-    return nothing
 end
-
+function status_summary(d::DebugProximalParameter; context::Symbol = :Default)
+    (context === :short) && (return "(:ProxParameter, \"$(escape_string(d.format))\")")
+    # Inline and default
+    return "A DebugAction printing the proximal parameter as “$(escape_string(d.format))”"
+end
 #
 # Record
 @doc """
-    RecordProximalParameter <: RecordAction
+    RecordProximalParameter{R <: Real} <: RecordAction
 
 record the current iterates proximal point algorithm parameter given by in
 [`AbstractManoptSolverState`](@ref)s `o.λ`.
+
+## Constructor
+    RecordProximalParameter(r::Type{<:Real}=Float64)
 """
-mutable struct RecordProximalParameter <: RecordAction
-    recorded_values::Array{Float64, 1}
-    RecordProximalParameter() = new(Array{Float64, 1}())
+mutable struct RecordProximalParameter{R <: Real} <: RecordAction
+    recorded_values::Array{R, 1}
+    RecordProximalParameter(r::Type{<:Real} = Float64) = new{r}(Array{r, 1}())
 end
-function (r::RecordProximalParameter)(
-        ::AbstractManoptProblem, cpps::CyclicProximalPointState, k::Int
-    )
-    return record_or_reset!(r, cpps.λ(k), k)
+show(io::IO, ::RecordProximalParameter{R}) where {R} = print(io, "RecordProximalParameter($R)")
+function status_summary(rg::RecordProximalParameter{R}; context::Symbol = :default) where {R}
+    (context === :short) && return ":ProximalParameter"
+    return "A RecordAction to record the current proximal parameter (of type $R)"
 end

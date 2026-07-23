@@ -1,7 +1,4 @@
-s = joinpath(@__DIR__, "..", "ManoptTestSuite.jl")
-!(s in LOAD_PATH) && (push!(LOAD_PATH, s))
-
-using LinearAlgebra, LRUCache, Manifolds, Manopt, ManoptTestSuite, Test, Random
+using LinearAlgebra, LRUCache, Manifolds, Manopt, Test, Random
 
 # Three dummy functors that are just meant to count their calls
 mutable struct TestCostCount
@@ -70,19 +67,15 @@ end
         mgoa = ManifoldGradientObjective(TestCostCount(0), TestGradCount(0))
         # Init to copy of p - init cache
         sco1 = Manopt.SimpleManifoldCachedObjective(M, mgoa; p = copy(M, p))
-        @test repr(sco1) == "SimpleManifoldCachedObjective{AllocatingEvaluation,$(mgoa)}"
-        @test startswith(
-            repr((sco1, 1.0)),
-            """## Cache
-            A `SimpleManifoldCachedObjective`""",
-        )
-        @test startswith(
-            repr((sco1, ManoptTestSuite.DummyState())),
-            """ManoptTestSuite.DummyState(Float64[])
-
-            ## Cache
-            A `SimpleManifoldCachedObjective`""",
-        )
+        sco1r = repr(sco1)
+        @test startswith(sco1r, "SimpleManifoldCachedObjective")
+        @test contains(sco1r, "initialized = ")
+        sco1s = Manopt.status_summary(sco1)
+        @test contains(sco1s, "## Cache")
+        # together with a state -> append cache information after state
+        sco1t = repr((sco1, GradientDescentState(M)))
+        @test contains(sco1t, "# Solver state for `Manopt.jl`s Gradient Descent")
+        @test contains(sco1t, "## Cache")
         # evaluated on init -> 1
         @test sco1.objective.functions[:cost].i == 1
         @test sco1.objective.functions[:gradient].i == 1
@@ -173,7 +166,7 @@ end
         get_gradient!(M, X, sco3, p)
         @test X == p
         @test get_cost(M, sco3, p) == norm(p)
-        # for seperate calls this is a 2
+        # for separate calls this is a 2
 
         @test sco3.objective.functions[:costgradient].i == 2
         @test get_gradient(M, sco3, q) == q
@@ -227,12 +220,11 @@ end
         o = ManifoldGradientObjective(f, grad_f)
         co = ManifoldCountObjective(M, o, [:Cost, :Gradient, :Differential])
         lco = objective_cache_factory(M, co, (:LRU, [:Cost, :Gradient, :Differential]))
-        @test startswith(repr(lco), "## Cache\n  * ")
-        @test startswith(
-            repr((lco, ManoptTestSuite.DummyState())),
-            "ManoptTestSuite.DummyState(Float64[])\n\n## Cache\n  * ",
+        @test contains(repr(lco), "## Cache\n  * ")
+        @test contains(
+            repr((lco, Manopt.Test.DummyState())), "Manopt.Test.DummyState(Float64[])",
         )
-        ro = ManoptTestSuite.DummyDecoratedObjective(o)
+        ro = Manopt.Test.DummyDecoratedObjective(o)
         #undecorated works as well
         lco2 = objective_cache_factory(M, o, (:LRU, [:Cost, :Gradient]))
         @test Manopt.get_cost_function(lco2) != Manopt.get_cost_function(o)

@@ -9,7 +9,7 @@ import Manopt:
     get_gradient,
     get_gradient!,
     set_parameter!
-using Manopt: _tex, _var, ManifoldDefaultsFactory, _produce_type
+using Manopt: _tex, ManifoldDefaultsFactory, _produce_type
 
 using RecursiveArrayTools
 
@@ -100,6 +100,7 @@ function alternating_gradient_descent!(
         M::ProductManifold,
         agmo::ManifoldAlternatingGradientObjective,
         p;
+        callbacks = Dict{Symbol, Function}(),
         inner_iterations::Int = 5,
         stopping_criterion::StoppingCriterion = StopAfterIteration(100) |
             StopWhenGradientNormLess(1.0e-9),
@@ -117,6 +118,7 @@ function alternating_gradient_descent!(
     agds = AlternatingGradientDescentState(
         M;
         p = p,
+        callbacks = Manopt.process_callbacks_arg(callbacks, AlternatingGradientDescentState),
         inner_iterations = inner_iterations,
         stopping_criterion = stopping_criterion,
         stepsize = _produce_type(stepsize, M),
@@ -128,4 +130,6 @@ function alternating_gradient_descent!(
     Manopt.solve!(dmp, agds)
     return Manopt.get_solver_return(get_objective(dmp), agds)
 end
+
+## Prox TV on
 end

@@ -7,6 +7,7 @@ describe the Steihaug-Toint truncated conjugate-gradient method, with
 
 Let `T` denote the type of a tangent vector and `R <: Real`.
 
+$(_fields(:callbacks; add_properties = [:as_dict]))
 * `δ::T`:                     the conjugate gradient search direction
 * `δHδ`, `YPδ`, `δPδ`, `YPδ`: temporary inner products with `Hδ` and preconditioned inner products.
 * `Hδ`, `HY`:                 temporary results of the Hessian applied to `δ` and `Y`, respectively.
@@ -15,7 +16,7 @@ Let `T` denote the type of a tangent vector and `R <: Real`.
   the function has to work inplace of `Y`, that is `(M, Y, p, X) -> Y`, where `X` and `Y` can be the same memory.
 * `randomize`:          indicate whether `X` is initialised to a random vector or not
 * `residual::T`:                 the gradient of the model ``m(Y)``
-$(_var(:Field, :stopping_criterion, "stop"))
+$(_fields(:stopping_criterion; name = "stop"))
 * `θ::R`:                     the superlinear convergence target rate of ``1+θ``
 * `trust_region_radius::R`:   the trust-region radius
 * `X::T`:                     the gradient ``$(_tex(:grad))f(p)``
@@ -35,26 +36,26 @@ Initialise the TCG state.
 
 ## Keyword arguments
 
+$(_kwargs(:callbacks; show_type = false, add_properties = [:as_dict]))
 * `κ=0.1`
 * `project!::F=copyto!`: initialise the numerical stabilisation to just copy the result
 * `randomize=false`
 * `θ=1.0`
 * `trust_region_radius=`[`injectivity_radius`](@extref `ManifoldsBase.injectivity_radius-Tuple{AbstractManifold}`)`(base_manifold(TpM)) / 4`
 $(
-    _var(
-        :Keyword,
+    _kwargs(
         :stopping_criterion;
-        default = "[`StopAfterIteration`](@ref)`(`$(_link(:manifold_dimension; M = "base_manifold(Tpm)"))`)`$(_sc(:Any))[`StopWhenResidualIsReducedByFactorOrPower`](@ref)`(; κ=κ, θ=θ)`$(_sc(:Any))[`StopWhenTrustRegionIsExceeded`](@ref)`()`$(_sc(:Any))[`StopWhenCurvatureIsNegative`](@ref)`()`$(_sc(:Any))[`StopWhenModelIncreased`](@ref)`()`"
+        default = "`[`StopAfterIteration`](@ref)`(`$(_link(:manifold_dimension; M = "base_manifold(Tpm)"))`)`$(_sc(:Any))[`StopWhenResidualIsReducedByFactorOrPower`](@ref)`(; κ=κ, θ=θ)`$(_sc(:Any))[`StopWhenTrustRegionIsExceeded`](@ref)`()`$(_sc(:Any))[`StopWhenCurvatureIsNegative`](@ref)`()`$(_sc(:Any))[`StopWhenModelIncreased`](@ref)`()"
     )
 )
-$(_var(:Keyword, :X))
+$(_kwargs(:X))
 
 # See also
 
 [`truncated_conjugate_gradient_descent`](@ref), [`trust_regions`](@ref)
 """
-mutable struct TruncatedConjugateGradientState{T, R <: Real, SC <: StoppingCriterion, Proj} <:
-    AbstractHessianSolverState
+mutable struct TruncatedConjugateGradientState{T, R <: Real, C <: AbstractDict{Symbol}, SC <: StoppingCriterion, Proj} <: AbstractHessianSolverState
+    callbacks::C
     stop::SC
     X::T
     Y::T
@@ -75,6 +76,7 @@ mutable struct TruncatedConjugateGradientState{T, R <: Real, SC <: StoppingCrite
     initialResidualNorm::Float64
     function TruncatedConjugateGradientState(
             TpM::TangentSpace;
+            callbacks::C = Dict{Symbol, Function}(),
             X::T = rand(TpM),
             trust_region_radius::R = injectivity_radius(base_manifold(TpM)) / 4.0,
             randomize::Bool = false,
@@ -91,8 +93,18 @@ mutable struct TruncatedConjugateGradientState{T, R <: Real, SC <: StoppingCrite
                 StopWhenCurvatureIsNegative() |
                 StopWhenModelIncreased(),
             kwargs...,
-        ) where {T, R <: Real, F}
-        tcgs = new{T, R, typeof(stopping_criterion), F}()
+        ) where {T, R <: Real, F, C <: AbstractDict{Symbol}}
+        return TruncatedConjugateGradientState(;
+            callbacks = callbacks, X = X, trust_region_radius = trust_region_radius,
+            randomize = randomize, (project!) = project!, stopping_criterion = stopping_criterion,
+        )
+    end
+    function TruncatedConjugateGradientState(;
+            X::T, trust_region_radius::R, randomize::Bool, project!::F, stopping_criterion::SC,
+            callbacks::C
+        ) where {T, R <: Real, F, SC <: StoppingCriterion, C <: AbstractDict{Symbol}}
+        tcgs = new{T, R, C, SC, F}()
+        tcgs.callbacks = callbacks
         tcgs.stop = stopping_criterion
         tcgs.Y = X
         tcgs.trust_region_radius = trust_region_radius
@@ -102,23 +114,35 @@ mutable struct TruncatedConjugateGradientState{T, R <: Real, SC <: StoppingCrite
         return tcgs
     end
 end
-function show(io::IO, tcgs::TruncatedConjugateGradientState)
+function Base.show(io::IO, tcgs::TruncatedConjugateGradientState)
+    print(io, "TruncatedConjugateGradientState(;")
+    print(io, "callbacks = ", tcgs.callbacks, ", ")
+    print(io, "(project!) = $(tcgs.project!), ")
+    print(io, "randomize = $(tcgs.randomize), ")
+    print(io, "stopping_criterion = $(tcgs.stop), ")
+    print(io, "trust_region_radius = $(tcgs.trust_region_radius), ")
+    return print(io, "X = $(tcgs.Y))")
+end
+function status_summary(tcgs::TruncatedConjugateGradientState; context::Symbol = :default)
+    (context === :short) && return repr(tcgs)
     i = get_count(tcgs, :Iterations)
+    conv_inl = (i > 0) ? (indicates_convergence(tcgs.stop) ? " (converged" : " (stopped") * " after $i iterations)" : ""
+    (context === :inline) && "A solver state for the truncated conjugate gradient descent$(conv_inl)"
     Iter = (i > 0) ? "After $i iterations\n" : ""
     Conv = indicates_convergence(tcgs.stop) ? "Yes" : "No"
-    s = """
+    as = _callbacks_summary(tcgs)
+    return """
     # Solver state for `Manopt.jl`s Truncated Conjugate Gradient Descent
     $Iter
-    ## Parameters
+    ## Parameters$(as)
     * randomize: $(tcgs.randomize)
     * trust region radius: $(tcgs.trust_region_radius)
 
     ## Stopping criterion
-
-    $(status_summary(tcgs.stop))
+    $(_in_str(status_summary(tcgs.stop; context = context); indent = 1, headers = 1))
     This indicates convergence: $Conv"""
-    return print(io, s)
 end
+get_callbacks(tcgs::TruncatedConjugateGradientState) = tcgs.callbacks
 function set_parameter!(tcgs::TruncatedConjugateGradientState, ::Val{:Iterate}, Y)
     return tcgs.Y = Y
 end
@@ -147,7 +171,7 @@ residual. The criterion hence reads
 
 * `κ`:      the reduction factor
 * `θ`:      part of the reduction power
-$(_var(:Field, :at_iteration))
+$(_fields(:at_iteration))
 
 # Constructor
 
@@ -191,16 +215,15 @@ function get_reason(c::StopWhenResidualIsReducedByFactorOrPower)
     end
     return ""
 end
-function status_summary(c::StopWhenResidualIsReducedByFactorOrPower)
+function status_summary(c::StopWhenResidualIsReducedByFactorOrPower; context::Symbol = :default)
+    (context === :short) && (return repr(c))
     has_stopped = (c.at_iteration >= 0)
     s = has_stopped ? "reached" : "not reached"
-    return "Residual reduced by factor $(c.κ) or power $(c.θ):\t$s"
+    (context === :inline) && (return "Residual reduced by factor $(c.κ) or power $(c.θ):$(_MANOPT_INDENT)$s")
+    return "A stopping criterion used within tCG to check whether the residual is reduced by factor $(c.κ) or power 1+$(c.θ)\n$(_MANOPT_INDENT)$s"
 end
-function show(io::IO, c::StopWhenResidualIsReducedByFactorOrPower)
-    return print(
-        io,
-        "StopWhenResidualIsReducedByFactorOrPower($(c.κ), $(c.θ))\n    $(status_summary(c))",
-    )
+function Base.show(io::IO, c::StopWhenResidualIsReducedByFactorOrPower)
+    return print(io, "StopWhenResidualIsReducedByFactorOrPower($(c.κ), $(c.θ))")
 end
 
 @doc """
@@ -236,7 +259,7 @@ and to end the algorithm when the trust region has been left.
 
 # Fields
 
-$(_var(:Field, :at_iteration))
+$(_fields(:at_iteration))
 * `trr` the trust region radius
 * `YPY` the computed norm of ``Y``.
 
@@ -278,13 +301,15 @@ function get_reason(c::StopWhenTrustRegionIsExceeded)
     end
     return ""
 end
-function status_summary(c::StopWhenTrustRegionIsExceeded)
+function status_summary(c::StopWhenTrustRegionIsExceeded; context::Symbol = :default)
+    (context === :short) && (return repr(c))
     has_stopped = (c.at_iteration >= 0)
     s = has_stopped ? "reached" : "not reached"
-    return "Trust region exceeded:\t$s"
+    (context === :inline) && (return "Trust region exceeded:$(_MANOPT_INDENT)$s")
+    return "A stopping criterion to stop when the trust region radius (0.0) is exceeded.\n$(_MANOPT_INDENT)$s"
 end
-function show(io::IO, c::StopWhenTrustRegionIsExceeded)
-    return print(io, "StopWhenTrustRegionIsExceeded()\n    $(status_summary(c))")
+function Base.show(io::IO, ::StopWhenTrustRegionIsExceeded)
+    return print(io, "StopWhenTrustRegionIsExceeded()")
 end
 
 @doc """
@@ -297,7 +322,7 @@ yield a reduction of the model.
 
 # Fields
 
-$(_var(:Field, :at_iteration))
+$(_fields(:at_iteration))
 * `value` store the value of the inner product.
 * `reason`: stores a reason of stopping if the stopping criterion has been reached,
   see [`get_reason`](@ref).
@@ -335,13 +360,15 @@ function get_reason(c::StopWhenCurvatureIsNegative)
     end
     return ""
 end
-function status_summary(c::StopWhenCurvatureIsNegative)
+function status_summary(c::StopWhenCurvatureIsNegative; context::Symbol = :default)
+    (context === :short) && (return repr(c))
     has_stopped = (c.at_iteration >= 0)
     s = has_stopped ? "reached" : "not reached"
-    return "Curvature is negative:\t$s"
+    (context === :inline) && (return "Curvature is negative:$(_MANOPT_INDENT)$s")
+    return "A stopping criterion to stop when the is negative\n$(_MANOPT_INDENT)$s"
 end
-function show(io::IO, c::StopWhenCurvatureIsNegative)
-    return print(io, "StopWhenCurvatureIsNegative()\n    $(status_summary(c))")
+function Base.show(io::IO, ::StopWhenCurvatureIsNegative)
+    return print(io, "StopWhenCurvatureIsNegative()")
 end
 
 @doc """
@@ -351,8 +378,8 @@ A functor for testing if the curvature of the model value increased.
 
 # Fields
 
-$(_var(:Field, :at_iteration))
-* `model_value`stre the last model value
+$(_fields(:at_iteration))
+* `model_value` store the last model value
 * `inc_model_value` store the model value that increased
 
 # Constructor
@@ -391,13 +418,15 @@ function get_reason(c::StopWhenModelIncreased)
     end
     return ""
 end
-function status_summary(c::StopWhenModelIncreased)
+function status_summary(c::StopWhenModelIncreased; context::Symbol = :default)
+    (context === :short) && (repr(c))
     has_stopped = (c.at_iteration >= 0)
     s = has_stopped ? "reached" : "not reached"
-    return "Model Increased:\t$s"
+    (context === :inline) && (return "Model Increased:$(_MANOPT_INDENT)$s")
+    return "A stopping criterion to indicate when the model increased.\n$(_MANOPT_INDENT)$s"
 end
-function show(io::IO, c::StopWhenModelIncreased)
-    return print(io, "StopWhenModelIncreased()\n    $(status_summary(c))")
+function Base.show(io::IO, c::StopWhenModelIncreased)
+    return print(io, "StopWhenModelIncreased()")
 end
 
 _doc_TCG_subproblem = raw"""
@@ -424,20 +453,15 @@ solve the trust-region subproblem
 
 $(_doc_TCG_subproblem)
 
-on a manifold ``$(_math(:M))`` by using the Steihaug-Toint truncated conjugate-gradient (tCG) method.
-This can be done inplace of `X`.
+on a manifold ``$(_math(:Manifold))`` by using the Steihaug-Toint truncated conjugate-gradient (tCG) method.
+This can be done in-place of `X`.
 
 For a description of the algorithm and theorems offering convergence guarantees,
 see [AbsilBakerGallivan:2006, ConnGouldToint:2000](@cite).
 
 # Input
 
-$(_var(:Argument, :M; type = true))
-$(_var(:Argument, :f))
-$(_var(:Argument, :grad_f))
-$(_var(:Argument, :Hess_f))
-$(_var(:Argument, :p))
-$(_var(:Argument, :X))
+$(_args([:M, :f, :grad_f, :Hess_f, :p, :X]))
 
 Instead of the three functions, you either provide a [`ManifoldHessianObjective`](@ref) `mho`
 which is then used to build the trust region model, or a [`TrustRegionModelObjective`](@ref) `trmo`
@@ -445,7 +469,8 @@ directly.
 
 # Keyword arguments
 
-$(_var(:Keyword, :evaluation))
+$(_kwargs(:callbacks; add_properties = [:process_note]))
+$(_kwargs(:evaluation))
 * `preconditioner`:       a preconditioner for the Hessian H.
   This is either an allocating function `(M, p, X) -> Y` or an in-place function `(M, Y, p, X) -> Y`,
   see `evaluation`, and by default set to the identity.
@@ -454,12 +479,11 @@ $(_var(:Keyword, :evaluation))
 * `project!=copyto!`: for numerical stability it is possible to project onto the tangent space after every iteration.
   the function has to work inplace of `Y`, that is `(M, Y, p, X) -> Y`, where `X` and `Y` can be the same memory.
 * `randomize=false`:      indicate whether `X` is initialised to a random vector or not. This disables preconditioning.
-$(_var(:Keyword, :retraction_method))
+$(_kwargs(:retraction_method))
 $(
-    _var(
-        :Keyword,
+    _kwargs(
         :stopping_criterion;
-        default = "[`StopAfterIteration`](@ref)`(`$(_link(:manifold_dimension; M = "base_manifold(Tpm)"))`)`$(_sc(:Any))[`StopWhenResidualIsReducedByFactorOrPower`](@ref)`(; κ=κ, θ=θ)`$(_sc(:Any))[`StopWhenTrustRegionIsExceeded`](@ref)`()`$(_sc(:Any))[`StopWhenCurvatureIsNegative`](@ref)`()`$(_sc(:Any))[`StopWhenModelIncreased`](@ref)`()`"
+        default = "`[`StopAfterIteration`](@ref)`(`$(_link(:manifold_dimension; M = "base_manifold(Tpm)"))`)`$(_sc(:Any))[`StopWhenResidualIsReducedByFactorOrPower`](@ref)`(; κ=κ, θ=θ)`$(_sc(:Any))[`StopWhenTrustRegionIsExceeded`](@ref)`()`$(_sc(:Any))[`StopWhenCurvatureIsNegative`](@ref)`()`$(_sc(:Any))[`StopWhenModelIncreased`](@ref)`()"
     )
 )
 * `trust_region_radius=`[`injectivity_radius`](@extref `ManifoldsBase.injectivity_radius-Tuple{AbstractManifold}`)`(M) / 4`: the initial trust-region radius
@@ -478,11 +502,7 @@ truncated_conjugate_gradient_descent(M::AbstractManifold, args; kwargs...)
 # No Hessian, no point/vector
 function truncated_conjugate_gradient_descent(
         M::AbstractManifold,
-        f,
-        grad_f,
-        Hess_f,
-        p = rand(M),
-        X = rand(M; vector_at = p);
+        f, grad_f, Hess_f, p = rand(M), X = rand(M; vector_at = p);
         evaluation = AllocatingEvaluation(),
         preconditioner = if evaluation isa InplaceEvaluation
             (M, Y, p, X) -> (Y .= X)
@@ -535,12 +555,7 @@ calls_with_kwargs(::typeof(truncated_conjugate_gradient_descent)) = (truncated_c
 @doc "$(_doc_TCGD)"
 truncated_conjugate_gradient_descent!(M::AbstractManifold, args...; kwargs...)
 function truncated_conjugate_gradient_descent!(
-        M::AbstractManifold,
-        f,
-        grad_f,
-        Hess_f,
-        p,
-        X;
+        M::AbstractManifold, f, grad_f, Hess_f, p, X;
         evaluation::AbstractEvaluationType = AllocatingEvaluation(),
         preconditioner = if evaluation isa InplaceEvaluation
             (M, Y, p, X) -> (Y .= X)
@@ -562,10 +577,8 @@ function truncated_conjugate_gradient_descent!(
     return truncated_conjugate_gradient_descent!(TpM, trmo, p, X; kwargs...)
 end
 function truncated_conjugate_gradient_descent!(
-        TpM::TangentSpace,
-        trm::TrustRegionModelObjective,
-        p,
-        X;
+        TpM::TangentSpace, trm::TrustRegionModelObjective, p, X;
+        callbacks = Dict{Symbol, Function}(),
         trust_region_radius::Float64 = injectivity_radius(TpM) / 4,
         θ::Float64 = 1.0,
         κ::Float64 = 0.1,
@@ -585,13 +598,10 @@ function truncated_conjugate_gradient_descent!(
     mp = DefaultManoptProblem(TpM, dtrm)
     tcgs = TruncatedConjugateGradientState(
         TpM;
-        X = X,
-        trust_region_radius = trust_region_radius,
-        randomize = randomize,
-        θ = θ,
-        κ = κ,
-        stopping_criterion = stopping_criterion,
-        (project!) = (project!),
+        callbacks = process_callbacks_arg(callbacks, TruncatedConjugateGradientState),
+        X = X, trust_region_radius = trust_region_radius,
+        randomize = randomize, θ = θ, κ = κ,
+        stopping_criterion = stopping_criterion, (project!) = (project!),
     )
     dtcgs = decorate_state!(tcgs; kwargs...)
     solve!(mp, dtcgs)

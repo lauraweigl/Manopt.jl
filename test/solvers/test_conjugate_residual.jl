@@ -18,4 +18,24 @@ using Manifolds, Manopt, Test
     @test norm(ps - pT) < 3.0e-15
     @test norm(pT2 - pT) < 3.0e-15
     @test get_cost(TpM, slso, pT) < 5.0e-15
+    s = repr(slso)
+    @test startswith(s, "SymmetricLinearSystemObjective")
+    s2 = Manopt.status_summary(slso)
+    @test startswith(s2, "An objective modelling a symmetric linear system")
+    cgrs = conjugate_residual(TpM, slso, X0; return_state = true)
+    @test startswith(Manopt.status_summary(cgrs), "# Solver state for `Manopt.jl`s Conjugate Residual Method")
+    @test startswith(repr(cgrs), "ConjugateResidualState(; ")
+    # Start without warmstart – though for this setting we get a NaN
+    X1 = conjugate_residual(TpM, slso, pT; warm_start = false)
+
+    @testset "Callbacks" begin
+        cr_record = Tuple{Symbol, Int}[]
+        cb(symbol, problem, state, k) = append!(cr_record, [(symbol, k)])
+        conjugate_residual(TpM, A, b, X0; callbacks = cb)
+        @test cr_record[1:6] == [(:BeforeInit, 0), (:Init, 0), (:BeforeStop, 0), (:BeforeStep, 1), (:Stepsize, 1), (:Step, 1)]
+    end
+
+    scs = StopWhenRelativeResidualLess(1.0, 0.1)
+    @test repr(scs) == "StopWhenRelativeResidualLess(1.0, 0.1)"
+    @test startswith(Manopt.status_summary(scs), "A stopping criterion to stop when the relative residual is less")
 end

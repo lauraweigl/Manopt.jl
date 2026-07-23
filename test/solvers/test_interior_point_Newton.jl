@@ -1,12 +1,14 @@
-using Manifolds, Manopt, LinearAlgebra, Random, Test
+using Manifolds, Manopt, LinearAlgebra, Random, Test, RecursiveArrayTools
 
 @testset "Interior Point Newton Solver" begin
     @testset "StepsizeState" begin
         M = Manifolds.Sphere(2)
         a = StepsizeState(M)
-        b = StepsizeState(a.p, a.X)
+        b = StepsizeState(; p = a.p, X = a.X)
         @test a.p === b.p
         @test a.X === b.X
+        @test startswith(repr(b), "StepsizeState(; ")
+        @test startswith(Manopt.status_summary(b), "A state for a stepsize")
     end
     @testset "A solver run on the Sphere" begin
         # We can take a look at debug prints of one run and plot the result
@@ -35,36 +37,18 @@ using Manifolds, Manopt, LinearAlgebra, Random, Test
         p_opt = [0.0, 0.0, 1.0]
         record = [:Iterate]
         dbg = [
-            :Iteration,
-            " ",
-            :Cost,
-            " ",
-            :Stepsize,
-            " ",
-            :Change,
-            " ",
-            :Feasibility,
-            "\n",
-            :Stop,
-            10,
+            :Iteration, " ", :Cost, " ", :Stepsize, " ", :Change, " ", :Feasibility, "\n",
+            :Stop, 10, DebugMessages(:Info, :Always),
         ]
 
         sc = StopAfterIteration(800) | StopWhenKKTResidualLess(1.0e-2)
         # (a) classical call w/ recording
         res = interior_point_Newton(
-            M,
-            f,
-            grad_f,
-            Hess_f,
-            p_0;
-            g = g,
-            grad_g = grad_g,
-            Hess_g = Hess_g,
+            M, f, grad_f, Hess_f, p_0;
+            g = g, grad_g = grad_g, Hess_g = Hess_g,
             stopping_criterion = sc,
-            debug = _debug ? dbg : [],
-            record = _debug_iterates_plot ? record : [],
-            return_state = true,
-            return_objective = true,
+            debug = _debug ? dbg : [], record = _debug_iterates_plot ? record : [],
+            return_state = true, return_objective = true,
         )
 
         q = get_solver_result(res)
@@ -73,15 +57,8 @@ using Manifolds, Manopt, LinearAlgebra, Random, Test
         # (b) inplace call
         q2 = copy(M, p_0)
         interior_point_Newton!(
-            M,
-            f,
-            grad_f,
-            Hess_f,
-            q2;
-            g = g,
-            grad_g = grad_g,
-            Hess_g = Hess_g,
-            stopping_criterion = sc,
+            M, f, grad_f, Hess_f, q2;
+            g = g, grad_g = grad_g, Hess_g = Hess_g, stopping_criterion = sc,
         )
         @test q == q2
 
@@ -94,12 +71,23 @@ using Manifolds, Manopt, LinearAlgebra, Random, Test
             M, coh, p_0; stopping_criterion = sc, centrality_condition = ipcc
         )
         @test distance(M, q3, [0.0, 0.0, 1.0]) < 2.0e-4
+        @testset "Callback Test" begin
+            sk_record = Tuple{Symbol, Int}[]
+            cb(symbol, problem, state, k) = push!(sk_record, (symbol, k))
+            q4 = interior_point_Newton(
+                M, coh, p_0; stopping_criterion = StopAfterIteration(1), centrality_condition = ipcc, callbacks = cb
+            )
+            @test sk_record == [
+                (:BeforeInit, 0), (:Init, 0), (:BeforeStop, 0),
+                (:BeforeStep, 1), (:BeforeSubsolver, 1), (:Subsolver, 1), (:Stepsize, 1), (:Step, 1), (:BeforeStop, 1), (:Stop, 1),
+            ]
+        end
         if _debug_iterates_plot
             using GLMakie, Makie, GeometryTypes
             rec = get_record(res[2])
             prepend!(rec, [p_0])
             add_scale = 0.0075
-            rec .+= add_scale * rec # scale slighly to lie on the sphere
+            rec .+= add_scale * rec # scale slightly to lie on the sphere
             n = 30
             π1(x) = x[1]
             π2(x) = x[2]
@@ -125,7 +113,7 @@ using Manifolds, Manopt, LinearAlgebra, Random, Test
             pa = [:color => f_.(pts), :backlight => 1.0f0, :colorrange => range_f]
             # light colormap on sphere
             surface!(scene, x1, x2, x3; colormap = (:viridis, 0.4), pa...)
-            # ful color on feasible set
+            # full color on feasible set
             surface!(scene, x1_, x2_, x3_; colormap = (:viridis, 1.0), backlight = 1.0f0, pa...)
             scatter!(scene, π1.(rec), π2.(rec), π3.(rec); color = :black, markersize = 8)
             P = [(1 + add_scale) .* p_opt]

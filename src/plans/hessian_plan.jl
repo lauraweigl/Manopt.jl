@@ -22,9 +22,9 @@ specify a problem for Hessian based algorithms.
 
 # Fields
 
-* `cost`:           a function ``f:$(_math(:M))→ℝ`` to minimize
-* `gradient`:       the gradient ``$(_tex(:grad))f:$(_math(:M)) → $(_math(:TM))`` of the cost function ``f``
-* `hessian`:        the Hessian ``$(_tex(:Hess))f(x)[⋅]: $(_math(:TpM; p = "x")) → $(_math(:TpM; p = "x"))`` of the cost function ``f``
+* `cost`:           a function ``f:$(_math(:Manifold))→ℝ`` to minimize
+* `gradient`:       the gradient ``$(_tex(:grad))f:$(_math(:Manifold)) → $(_math(:TangentBundle))`` of the cost function ``f``
+* `hessian`:        the Hessian ``$(_tex(:Hess))f(x)[⋅]: $(_math(:TangentSpace; p = "x")) → $(_math(:TangentSpace; p = "x"))`` of the cost function ``f``
 * `preconditioner`: the symmetric, positive definite preconditioner
   as an approximation of the inverse of the Hessian of ``f``, a map with the same
   input variables as the `hessian` to numerically stabilize iterations when the Hessian is
@@ -56,13 +56,7 @@ struct ManifoldHessianObjective{T <: AbstractEvaluationType, C, G, H, Pre} <:
             precond = nothing;
             evaluation::AbstractEvaluationType = AllocatingEvaluation(),
         ) where {C, G, H}
-        if isnothing(precond)
-            if evaluation isa InplaceEvaluation
-                precond = (M, Y, p, X) -> (Y .= X)
-            else
-                precond = (M, p, X) -> X
-            end
-        end
+        # We store `Nothing` as a type for the preconditioner
         return new{typeof(evaluation), C, G, H, typeof(precond)}(cost, grad, hess, precond)
     end
 end
@@ -173,7 +167,6 @@ end
 function get_preconditioner!(amp::AbstractManoptProblem, Y, p, X)
     return get_preconditioner!(get_manifold(amp), Y, get_objective(amp), p, X)
 end
-
 @doc """
     get_preconditioner(M::AbstractManifold, mho::ManifoldHessianObjective, p, X)
 
@@ -185,12 +178,14 @@ tangent vector `X`.
 function get_preconditioner(
         M::AbstractManifold, mho::ManifoldHessianObjective{AllocatingEvaluation}, p, X
     )
+    isnothing(mho.preconditioner!!) && return (copy(M, p, X))
     return mho.preconditioner!!(M, p, X)
 end
 function get_preconditioner(
         M::AbstractManifold, mho::ManifoldHessianObjective{InplaceEvaluation}, p, X
     )
     Y = zero_vector(M, p)
+    isnothing(mho.preconditioner!!) && return copyto!(M, Y, p, X)
     mho.preconditioner!!(M, Y, p, X)
     return Y
 end
@@ -203,7 +198,7 @@ end
 function get_preconditioner!(
         M::AbstractManifold, Y, mho::ManifoldHessianObjective{AllocatingEvaluation}, p, X
     )
-    copyto!(M, Y, p, mho.preconditioner!!(M, p, X))
+    copyto!(M, Y, p, isnothing(mho.preconditioner!!) ? X : mho.preconditioner!!(M, p, X))
     return Y
 end
 function get_preconditioner!(
@@ -214,13 +209,35 @@ end
 function get_preconditioner!(
         M::AbstractManifold, Y, mho::ManifoldHessianObjective{InplaceEvaluation}, p, X
     )
-    mho.preconditioner!!(M, Y, p, X)
-    return Y
+    return isnothing(mho.preconditioner!!) ? copyto!(M, Y, p, X) : mho.preconditioner!!(M, Y, p, X)
 end
 
 update_hessian!(M, f, p, p_proposal, X) = f
 
 update_hessian_basis!(M, f, p) = f
+
+function status_summary(mho::ManifoldHessianObjective{E}; context::Symbol = :default) where {E}
+    _is_inline(context) && return "A second order objective with cost, gradient$(isnothing(mho.preconditioner!!) ? ", and" : "") Hessian$(isnothing(mho.preconditioner!!) ? "" : ", and a preconditioner")"
+    precon_str = isnothing(mho.preconditioner!!) ? "" : "\n* preconditioner: $(mho.preconditioner!!)"
+    return """
+    A second order objective providing a cost, a gradient$(isnothing(mho.preconditioner!!) ? ", and" : "") a Hessian$(isnothing(mho.preconditioner!!) ? "" : ", and a preconditioner")
+
+    ## Functions
+    * cost:    $(_MANOPT_INDENT)$(mho.cost)
+    * gradient:$(_MANOPT_INDENT)$(mho.gradient!!)
+    * Hessian: $(_MANOPT_INDENT)$(mho.hessian!!)$(precon_str)"""
+end
+
+function Base.show(io::IO, mho::ManifoldHessianObjective{E}) where {E}
+    print(io, "ManifoldHessianObjective(")
+    print(io, "$(mho.cost), ")
+    print(io, "$(mho.gradient!!), ")
+    print(io, "$(mho.hessian!!)")
+    !isnothing(mho.preconditioner!!) && print(io, ", $(mho.preconditioner!!)")
+    print(io, "; ")
+    print(io, _to_kw(E))
+    return print(io, ")")
+end
 
 @doc """
     AbstractApproxHessian <: Function
@@ -233,7 +250,7 @@ _doc_ApproxHessian_formula = """
 ```math
 $(_tex(:Hess))f(p)[X] ≈
 $(_tex(:frac, "$(_tex(:norm, "X"))", "c"))$(_tex(:Bigl))(
-  $(_math(:VT, "p", "q"))$(_tex(:bigl))( $(_tex(:grad))f(q)$(_tex(:bigr)) - $(_tex(:grad))f(p)
+  $(_math(:VectorTransport, "p", "q"))$(_tex(:bigl))( $(_tex(:grad))f(q)$(_tex(:bigr)) - $(_tex(:grad))f(p)
 $(_tex(:Bigr)))
 ```
 """
@@ -246,10 +263,10 @@ A functor to approximate the Hessian by a finite difference of gradient evaluati
 
 Given a point `p` and a direction `X` and the gradient ``$(_tex(:grad)) f(p)``
 of a function ``f`` the Hessian is approximated as follows:
-let ``c`` be a stepsize, ``X ∈ $(_math(:TpM))`` a tangent vector and ``q = $_doc_ApproxHessian_step``
+let ``c`` be a stepsize, ``X ∈ $(_math(:TangentSpace))`` a tangent vector and ``q = $_doc_ApproxHessian_step``
 be a step in direction ``X`` of length ``c`` following a retraction
 Then the Hessian is approximated by the finite difference of the gradients,
-where ``$(_math(:vector_transport, :symbol))`` is a vector transport.
+where ``$(_math(:VectorTransport))`` is a vector transport.
 
 $_doc_ApproxHessian_formula
 
@@ -257,8 +274,7 @@ $_doc_ApproxHessian_formula
 
 * `gradient!!`:              the gradient function (either allocating or mutating, see `evaluation` parameter)
 * `step_length`:             a step length for the finite difference
-$(_var(:Keyword, :retraction_method))
-$(_var(:Keyword, :vector_transport_method))
+$(_kwargs([:retraction_method, :vector_transport_method]))
 
 ## Internal temporary fields
 
@@ -272,13 +288,11 @@ $(_var(:Keyword, :vector_transport_method))
 
 ## Keyword arguments
 
-$(_var(:Keyword, :evaluation))
-* `steplength=`2^{-14}``: step length ``c`` to approximate the gradient evaluations
-$(_var(:Keyword, :retraction_method))
-$(_var(:Keyword, :vector_transport_method))
+$(_kwargs(:evaluation))
+* `steplength=2^{-14}`: step length ``c`` to approximate the gradient evaluations
+$(_kwargs([:retraction_method, :vector_transport_method]))
 """
-mutable struct ApproxHessianFiniteDifference{E, P, T, G, RTR, VTR, R <: Real} <:
-    AbstractApproxHessian
+mutable struct ApproxHessianFiniteDifference{E, P, T, G, RTR, VTR, R <: Real} <: AbstractApproxHessian
     p_dir::P
     gradient!!::G
     grad_tmp::T
@@ -346,7 +360,7 @@ A functor to approximate the Hessian by the symmetric rank one update.
 
 * `gradient!!`: the gradient function (either allocating or mutating, see `evaluation` parameter).
 * `ν`: a small real number to ensure that the denominator in the update does not become too small and thus the method does not break down.
-$(_var(:Keyword, :vector_transport_method)).
+$(_kwargs(:vector_transport_method)).
 
 ## Internal temporary fields
 
@@ -361,14 +375,12 @@ $(_var(:Keyword, :vector_transport_method)).
 
 ## Keyword arguments
 
-* `initial_operator` (`Matrix{Float64}(I, manifold_dimension(M), manifold_dimension(M))`) the matrix representation of the initial approximating operator.
-* `basis` (`DefaultOrthonormalBasis()`) an orthonormal basis in the tangent space of the initial iterate p.
+* `initial_operator=Matrix{Float64}(I, manifold_dimension(M), manifold_dimension(M))`) the matrix representation of the initial approximating operator.
+* `basis=`[`DefaultOrthonormalBasis`](@extref `ManifoldsBase.DefaultOrthonormalBasis`) an orthonormal basis in the tangent space of the initial iterate p.
 * `nu` (`-1`)
-$(_var(:Keyword, :evaluation))
-$(_var(:Keyword, :vector_transport_method))
+$(_kwargs([:evaluation, :vector_transport_method]))
 """
-mutable struct ApproxHessianSymmetricRankOne{E, P, G, T, B <: AbstractBasis{ℝ}, VTR, R <: Real} <:
-    AbstractApproxHessian
+mutable struct ApproxHessianSymmetricRankOne{E, P, G, T, B <: AbstractBasis{ℝ}, VTR, R <: Real} <: AbstractApproxHessian
     p_tmp::P
     gradient!!::G
     grad_tmp::T
@@ -492,7 +504,7 @@ A functor to approximate the Hessian by the BFGS update.
 
 * `gradient!!` the gradient function (either allocating or mutating, see `evaluation` parameter).
 * `scale`
-$(_var(:Field, :vector_transport_method))
+$(_fields(:vector_transport_method))
 
 ## Internal temporary fields
 
@@ -507,10 +519,9 @@ $(_var(:Field, :vector_transport_method))
 ## Keyword arguments
 
 * `initial_operator` (`Matrix{Float64}(I, manifold_dimension(M), manifold_dimension(M))`) the matrix representation of the initial approximating operator.
-* `basis` (`DefaultOrthonormalBasis()`) an orthonormal basis in the tangent space of the initial iterate p.
+* `basis=`[`DefaultOrthonormalBasis`](@extref `ManifoldsBase.DefaultOrthonormalBasis`)) an orthonormal basis in the tangent space of the initial iterate p.
 * `nu` (`-1`)
-$(_var(:Keyword, :evaluation))
-$(_var(:Keyword, :vector_transport_method))
+$(_kwargs([:evaluation, :vector_transport_method]))
 """
 mutable struct ApproxHessianBFGS{
         E, P, G, T, B <: AbstractBasis{ℝ}, VTR <: AbstractVectorTransportMethod,

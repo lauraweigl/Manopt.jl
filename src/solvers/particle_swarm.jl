@@ -8,21 +8,23 @@ Describes a particle swarm optimizing algorithm, with
 
 # Fields
 
+$(_fields(:callbacks; add_properties = [:as_dict]))
 * `cognitive_weight`: a cognitive weight factor
 * `inertia`:          the inertia of the particles
-$(_var(:Field, :inverse_retraction_method))
-$(_var(:Field, :retraction_method))
+$(_fields([:inverse_retraction_method, :retraction_method]))
 * `social_weight`:    a social weight factor
-$(_var(:Field, :stopping_criterion, "stop"))
-$(_var(:Field, :vector_transport_method))
+$(_fields(:stopping_criterion; name = "stop"))
+$(_fields(:vector_transport_method))
 * `velocity`:         a set of tangent vectors (of type `AbstractVector{T}`) representing the velocities of the particles
 
 # Internal and temporary fields
 
 * `cognitive_vector`: temporary storage for a tangent vector related to `cognitive_weight`
-$(_var(:Field, :p; add = " storing the best point visited by all particles"))
+$(_fields(:p))
+  storing the best point visited by all particles
 * `positional_best`:  storing the best position ``p_i`` every single swarm participant visited
-$(_var(:Field, :p, "q"; add = " serving as temporary storage for interims results; avoids allocations"))
+$(_fields(:p; name = "q"))
+  serving as temporary storage for interims results; avoids allocations
 * `social_vec`:       temporary storage for a tangent vector related to `social_weight`
 * `swarm`:            a set of points (of type `AbstractVector{P}`) on a manifold ``$(_math(:Sequence, "a", "i", "1", "N"))``
 
@@ -35,93 +37,113 @@ The `p` used in the following defaults is the type of one point from the swarm.
 
 # Keyword arguments
 
+$(_kwargs(:callbacks; show_type = false, add_properties = [:as_dict]))
 * `cognitive_weight=1.4`
 * `inertia=0.65`
-$(_var(:Keyword, :inverse_retraction_method))
-$(_var(:Keyword, :retraction_method))
+$(_kwargs([:inverse_retraction_method, :retraction_method]))
 * `social_weight=1.4`
-$(_var(:Keyword, :stopping_criterion; default = "[`StopAfterIteration`](@ref)`(500)`$(_sc(:Any))[`StopWhenChangeLess`](@ref)`(1e-4)`"))
-$(_var(:Keyword, :vector_transport_method))
+$(_kwargs(:stopping_criterion; default = "`[`StopAfterIteration`](@ref)`(500)`$(_sc(:Any))[`StopWhenChangeLess`](@ref)`(1e-4)"))
+$(_kwargs(:vector_transport_method))
 
 # See also
 
 [`particle_swarm`](@ref)
 """
 mutable struct ParticleSwarmState{
-        P,
-        T,
-        TX <: AbstractVector{P},
-        TVelocity <: AbstractVector{T},
-        TParams <: Real,
-        TStopping <: StoppingCriterion,
-        TRetraction <: AbstractRetractionMethod,
-        TInvRetraction <: AbstractInverseRetractionMethod,
-        TVTM <: AbstractVectorTransportMethod,
+        P, T, C <: AbstractDict{Symbol}, F <: Real, VP <: AbstractVector{P}, VT <: AbstractVector{T},
+        SC <: StoppingCriterion, RM <: AbstractRetractionMethod,
+        IRM <: AbstractInverseRetractionMethod, VTM <: AbstractVectorTransportMethod,
     } <: AbstractManoptSolverState
-    swarm::TX
-    positional_best::TX
-    p::P
-    velocity::TVelocity
-    inertia::TParams
-    social_weight::TParams
-    cognitive_weight::TParams
-    q::P
-    social_vector::T
+    callbacks::C
     cognitive_vector::T
-    stop::TStopping
-    retraction_method::TRetraction
-    inverse_retraction_method::TInvRetraction
-    vector_transport_method::TVTM
-
-    function ParticleSwarmState(
-            M::AbstractManifold,
+    cognitive_weight::F
+    inertia::F
+    inverse_retraction_method::IRM
+    p::P
+    positional_best::VP
+    q::P
+    retraction_method::RM
+    social_vector::T
+    social_weight::F
+    stop::SC
+    swarm::VP
+    vector_transport_method::VTM
+    velocity::VT
+    function ParticleSwarmState(;
+            callbacks::C = Dict{Symbol, Function}(),
+            cognitive_vector::T, cognitive_weight::F,
+            inertia::F, inverse_retraction_method::IRM,
+            p::P, positional_best::VP, q::P,
+            retraction_method::RM,
+            social_vector::T, social_weight::F,
+            stopping_criterion::SC,
             swarm::VP,
-            velocity::VT;
-            inertia = 0.65,
-            social_weight = 1.4,
-            cognitive_weight = 1.4,
+            vector_transport_method::VTM, velocity::VT,
+        ) where {
+            P, T, C <: AbstractDict{Symbol}, F, VP <: AbstractVector, VT <: AbstractVector, SC <: StoppingCriterion,
+            RM <: AbstractRetractionMethod, IRM <: AbstractInverseRetractionMethod, VTM <: AbstractVectorTransportMethod,
+        }
+        return new{P, T, C, F, VP, VT, SC, RM, IRM, VTM}(
+            callbacks,
+            cognitive_vector, cognitive_weight,
+            inertia, inverse_retraction_method,
+            p, positional_best, q,
+            retraction_method,
+            social_vector, social_weight,
+            stopping_criterion,
+            swarm,
+            vector_transport_method, velocity,
+        )
+    end
+    function ParticleSwarmState(
+            M::AbstractManifold, swarm::VP, velocity::VT;
+            callbacks::C = Dict{Symbol, Function}(),
+            inertia::Real = 0.65, social_weight::Real = 1.4, cognitive_weight::Real = 1.4,
             stopping_criterion::SCT = StopAfterIteration(500) | StopWhenChangeLess(M, 1.0e-4),
             retraction_method::RTM = default_retraction_method(M, eltype(swarm)),
             inverse_retraction_method::IRM = default_inverse_retraction_method(M, eltype(swarm)),
             vector_transport_method::VTM = default_vector_transport_method(M, eltype(swarm)),
         ) where {
-            P,
-            T,
-            VP <: AbstractVector{<:P},
-            VT <: AbstractVector{<:T},
-            RTM <: AbstractRetractionMethod,
-            SCT <: StoppingCriterion,
-            IRM <: AbstractInverseRetractionMethod,
-            VTM <: AbstractVectorTransportMethod,
+            P, T, C <: AbstractDict{Symbol}, VP <: AbstractVector{<:P}, VT <: AbstractVector{<:T},
+            RTM <: AbstractRetractionMethod, SCT <: StoppingCriterion,
+            IRM <: AbstractInverseRetractionMethod, VTM <: AbstractVectorTransportMethod,
         }
-        s = new{
-            P, T, VP, VT, typeof(inertia + social_weight + cognitive_weight), SCT, RTM, IRM, VTM,
-        }()
-        s.swarm = swarm
-        s.positional_best = copy.(Ref(M), swarm)
-        s.q = copy(M, first(swarm))
-        s.p = copy(M, first(swarm))
-        s.social_vector = zero_vector(M, s.q)
-        s.cognitive_vector = zero_vector(M, s.q)
-        s.velocity = velocity
-        s.inertia = inertia
-        s.social_weight = social_weight
-        s.cognitive_weight = cognitive_weight
-        s.stop = stopping_criterion
-        s.retraction_method = retraction_method
-        s.inverse_retraction_method = inverse_retraction_method
-        s.vector_transport_method = vector_transport_method
-        return s
+        R = promote_type(typeof(inertia), typeof(social_weight), typeof(cognitive_weight))
+        inertia = convert(R, inertia); social_weight = convert(R, social_weight); cognitive_weight = convert(R, cognitive_weight)
+        return ParticleSwarmState(;
+            callbacks = callbacks,
+            swarm = swarm, positional_best = copy.(Ref(M), swarm),
+            q = copy(M, first(swarm)), p = copy(M, first(swarm)),
+            social_vector = zero_vector(M, first(swarm)), cognitive_vector = zero_vector(M, first(swarm)),
+            velocity = velocity, inertia = inertia, social_weight = social_weight, cognitive_weight = cognitive_weight,
+            stopping_criterion = stopping_criterion, retraction_method = retraction_method,
+            inverse_retraction_method = inverse_retraction_method, vector_transport_method = vector_transport_method
+        )
     end
 end
-function show(io::IO, pss::ParticleSwarmState)
+function Base.show(io::IO, pss::ParticleSwarmState)
+    print(io, "ParticleSwarmState(; ")
+    print(io, "callbacks = ", pss.callbacks, ", swarm = ", pss.swarm, ", positional_best = ", pss.positional_best)
+    print(io, ", p = ", pss.p, ", velocity = ", pss.velocity)
+    print(io, ", inertia = ", pss.inertia, ", social_weight = ", pss.social_weight, ", cognitive_weight = ", pss.cognitive_weight)
+    print(io, ", q = ", pss.q, ", social_vector = ", pss.social_vector, ", cognitive_vector = ", pss.cognitive_vector)
+    print(io, ", stopping_criterion = ", pss.stop, ", retraction_method = ", pss.retraction_method)
+    print(io, ", inverse_retraction_method = ", pss.inverse_retraction_method, ", vector_transport_method = ", pss.vector_transport_method)
+    return print(io, ")")
+end
+function status_summary(pss::ParticleSwarmState; context::Symbol = :default)
+    (context === :short) && return repr(pss)
     i = get_count(pss, :Iterations)
+    conv_inl = (i > 0) ? (indicates_convergence(pss.stop) ? " (converged" : " (stopped") * " after $i iterations)" : ""
+    (context === :inline) && return "A solver state for the particle swarm solver$(conv_inl)"
     Iter = (i > 0) ? "After $i iterations\n" : ""
     Conv = indicates_convergence(pss.stop) ? "Yes" : "No"
+    _is_inline(context) && (return "$(repr(pss)) – $(Iter) $(has_converged(pss) ? "(converged)" : "")")
+    as = _callbacks_summary(pss)
     s = """
     # Solver state for `Manopt.jl`s Particle Swarm Optimization Algorithm
     $Iter
-    ## Parameters
+    ## Parameters$(as)
     * inertia:          $(pss.inertia)
     * social_weight:    $(pss.social_weight)
     * cognitive_weight: $(pss.cognitive_weight)
@@ -130,10 +152,9 @@ function show(io::IO, pss::ParticleSwarmState)
     * vector transport method:   $(pss.vector_transport_method)
 
     ## Stopping criterion
-
-    $(status_summary(pss.stop))
+    $(_in_str(status_summary(pss.stop; context = context); indent = 0, headers = 1))
     This indicates convergence: $Conv"""
-    return print(io, s)
+    return s
 end
 #
 # Access functions
@@ -143,6 +164,7 @@ function set_iterate!(pss::ParticleSwarmState, p)
     pss.p = p
     return pss
 end
+get_callbacks(pss::ParticleSwarmState) = pss.callbacks
 function set_parameter!(pss::ParticleSwarmState, ::Val{:Population}, swarm)
     return pss.swarm = swarm
 end
@@ -192,13 +214,13 @@ $(_problem(:Default))
 PSO starts with an initial `swarm` [BorckmansIshtevaAbsil:2010](@cite) of points
 on the manifold.
 If no `swarm` is provided, the `swarm_size` keyword is used to generate random points.
-The computation can be perfomed in-place of `swarm`.
+The computation can be performed in-place of `swarm`.
 
 To this end, a swarm $_doc_swarm of particles is moved around the manifold `M` in the following manner.
 For every particle ``s_k^{(i)}`` the new particle velocities ``X_k^{(i)}`` are computed in every step ``i`` of the algorithm by
 
 ```math
-X_k^{(i)} = ω $(_math(:vector_transport, :symbol, "s_k^{(i)", "s_k^{(i-1)}")) X_k^{(i-1)} + c r_1  $(_tex(:invretr))_{s_k^{(i)}}(p_k^{(i)}) + s r_2 $(_tex(:invretr))_{s_k^{(i)}}(p),
+X_k^{(i)} = ω $(_math(:VectorTransport, "s_k^{(i)", "s_k^{(i-1)}")) X_k^{(i-1)} + c r_1  $(_tex(:invretr))_{s_k^{(i)}}(p_k^{(i)}) + s r_2 $(_tex(:invretr))_{s_k^{(i)}}(p),
 ```
 
 
@@ -207,7 +229,7 @@ where
 * ``ω`` denotes the inertia,
 * ``c`` and ``s`` are a cognitive and a social weight, respectively,
 * ``r_j``, ``j=1,2`` are random factors which are computed new for each particle and step
-* $(_math(:vector_transport, :symbol)) is a vector transport, and
+* $(_math(:VectorTransport)) is a vector transport, and
 * $(_tex(:invretr)) is an inverse retraction
 
 Then the position of the particle is updated as
@@ -224,22 +246,21 @@ $_doc_swarm_global_best
 
 # Input
 
-$(_var(:Argument, :M; type = true))
-$(_var(:Argument, :f))
+$(_args([:M, :f]))
 * `swarm = [rand(M) for _ in 1:swarm_size]`: an initial swarm of points.
 
 Instead of a cost function `f` you can also provide an [`AbstractManifoldCostObjective`](@ref) `mco`.
 
 # Keyword Arguments
 
+$(_kwargs(:callbacks; add_properties = [:process_note]))
 * `cognitive_weight=1.4`: a cognitive weight factor
 * `inertia=0.65`: the inertia of the particles
-$(_var(:Keyword, :inverse_retraction_method))
-$(_var(:Keyword, :retraction_method))
+$(_kwargs([:inverse_retraction_method, :retraction_method]))
 * `social_weight=1.4`: a social weight factor
+$(_kwargs(:stopping_criterion; default = "`[`StopAfterIteration`](@ref)`(500)`$(_sc(:Any))[`StopWhenChangeLess`](@ref)`(1e-4)"))
 * `swarm_size=100`: swarm size, if it should be generated randomly
-$(_var(:Keyword, :stopping_criterion; default = "[`StopAfterIteration`](@ref)`(500)`$(_sc(:Any))[`StopWhenChangeLess`](@ref)`(1e-4)`"))
-$(_var(:Keyword, :vector_transport_method))
+$(_kwargs(:vector_transport_method))
 * `velocity`:                  a set of tangent vectors (of type `AbstractVector{T}`) representing the velocities of the particles, per default a random tangent vector per initial position
 
 $(_note(:OtherKeywords))
@@ -284,6 +305,7 @@ function particle_swarm!(
         mco::O,
         swarm::AbstractVector;
         velocity::AbstractVector = [rand(M; vector_at = y) for y in swarm],
+        callbacks = Dict{Symbol, Function}(),
         inertia::Real = 0.65,
         social_weight::Real = 1.4,
         cognitive_weight::Real = 1.4,
@@ -302,16 +324,11 @@ function particle_swarm!(
     dmco = decorate_objective!(M, mco; kwargs...)
     mp = DefaultManoptProblem(M, dmco)
     pss = ParticleSwarmState(
-        M,
-        swarm,
-        velocity;
-        inertia = inertia,
-        social_weight = social_weight,
-        cognitive_weight = cognitive_weight,
-        stopping_criterion = stopping_criterion,
-        retraction_method = retraction_method,
-        inverse_retraction_method = inverse_retraction_method,
-        vector_transport_method = vector_transport_method,
+        M, swarm, velocity;
+        callbacks = process_callbacks_arg(callbacks, ParticleSwarmState),
+        inertia = inertia, social_weight = social_weight, cognitive_weight = cognitive_weight,
+        stopping_criterion = stopping_criterion, retraction_method = retraction_method,
+        inverse_retraction_method = inverse_retraction_method, vector_transport_method = vector_transport_method,
     )
     dpss = decorate_state!(pss; kwargs...)
     solve!(mp, dpss)
@@ -332,11 +349,7 @@ function step_solver!(mp::AbstractManoptProblem, s::ParticleSwarmState, ::Any)
     M = get_manifold(mp)
     for i in 1:length(s.swarm)
         inverse_retract!(
-            M,
-            s.cognitive_vector,
-            s.swarm[i],
-            s.positional_best[i],
-            s.inverse_retraction_method,
+            M, s.cognitive_vector, s.swarm[i], s.positional_best[i], s.inverse_retraction_method,
         )
         inverse_retract!(M, s.social_vector, s.swarm[i], s.p, s.inverse_retraction_method)
         s.velocity[i] .=
@@ -410,11 +423,11 @@ function get_reason(c::StopWhenSwarmVelocityLess)
     end
     return ""
 end
-function status_summary(c::StopWhenSwarmVelocityLess)
+function status_summary(c::StopWhenSwarmVelocityLess; context::Symbol = :default)
     has_stopped = (c.at_iteration >= 0) && (norm(c.velocity_norms) < c.threshold)
     s = has_stopped ? "reached" : "not reached"
-    return "swarm velocity norm < $(c.threshold):\t$s"
+    return "swarm velocity norm < $(c.threshold):$(_MANOPT_INDENT)$s"
 end
-function show(io::IO, c::StopWhenSwarmVelocityLess)
-    return print(io, "StopWhenSwarmVelocityLess($(c.threshold))\n    $(status_summary(c))")
+function Base.show(io::IO, c::StopWhenSwarmVelocityLess)
+    return print(io, "StopWhenSwarmVelocityLess($(c.threshold))")
 end

@@ -1,4 +1,4 @@
-# [Stepsize and line search](@id Stepsize)
+# [Stepsize and line search](@id Sec-Stepsize)
 
 ```@meta
 CurrentModule = Manopt
@@ -32,6 +32,17 @@ WolfePowellLinesearch
 WolfePowellBinaryLinesearch
 ```
 
+Additionally, initial stepsize guesses are handled by subtypes of `AbstractInitialLinesearchGuess`:
+
+```@docs
+AbstractInitialLinesearchGuess
+ConstantInitialGuess
+ArmijoInitialGuess
+HagerZhangInitialGuess
+```
+
+Own implementations can also (just) be functions.
+
 Some step sizes use [`max_stepsize`](@ref) function as a rough upper estimate for the trust region size.
 It is by default equal to injectivity radius of the exponential map but in some cases a different value is used.
 For the `FixedRankMatrices` manifold an estimate from Manopt is used.
@@ -44,10 +55,10 @@ Internally these use
 
 ```@autodocs
 Modules = [Manopt]
-Pages = ["plans/stepsize.jl"]
+Pages = ["plans/stepsize/stepsize_message.jl", "plans/stepsize/linesearch.jl", "plans/stepsize/stepsize.jl"]
 Private = true
 Order = [:function, :type]
-Filter = t -> !(t in [Stepsize, AdaptiveWNGradient, ArmijoLinesearch, ConstantLength, CubicBracketingLinesearch, DecreasingLength, DistanceOverGradients, NonmonotoneLinesearch, Polyak, WolfePowellLinesearch, WolfePowellBinaryLinesearch ])
+Filter = t -> !(t in [Manopt.get_message, Stepsize, AdaptiveWNGradient, ArmijoLinesearch, ConstantLength, CubicBracketingLinesearch, DecreasingLength, DistanceOverGradients, NonmonotoneLinesearch, Polyak, WolfePowellLinesearch, WolfePowellBinaryLinesearch ])
 ```
 
 
@@ -56,6 +67,13 @@ Then the following state can be used to wrap these locally
 
 ```@docs
 StepsizeState
+```
+
+The Hager-Zhang initial guess uses two helper functions to determine initial stepsize in the first iteration on manifolds which have "expected minimizer", for example the zero point on the Euclidean manifold:
+
+```@docs
+default_vector_norm
+default_point_distance
 ```
 
 ## Literature

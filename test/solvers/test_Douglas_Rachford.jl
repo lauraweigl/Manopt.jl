@@ -39,21 +39,34 @@ using ManifoldDiff: prox_distance, prox_distance!
 
     #test getter/set
     s = DouglasRachfordState(M; p = d1)
-    sr = "# Solver state for `Manopt.jl`s  Douglas Rachford Algorithm\n"
-    @test startswith(repr(s), sr)
+    sr = "# Solver state for `Manopt.jl`s Douglas Rachford Algorithm\n"
+    @test startswith(Manopt.status_summary(s; context = :default), sr)
+    @test startswith(repr(s), "DouglasRachfordState(; ")
     set_iterate!(s, d2)
     @test get_iterate(s) == d2
     @testset "Debug and Record prox parameter" begin
         io = IOBuffer()
         mpo = ManifoldProximalMapObjective(f, [prox1a, prox2a, prox3a])
-        p = DefaultManoptProblem(M, mpo)
+        dmp = DefaultManoptProblem(M, mpo)
         ds = DebugSolverState(s, DebugProximalParameter(; io = io))
-        step_solver!(p, ds, 1)
+        step_solver!(dmp, ds, 1)
         debug = String(take!(io))
         @test startswith(debug, "λ:")
         rs = RecordSolverState(s, RecordProximalParameter())
-        step_solver!(p, rs, 1)
+        step_solver!(dmp, rs, 1)
         @test get_record(rs) == [1.0]
+    end
+    @testset "Callbacks" begin
+        sk_record = Tuple{Symbol, Int}[]
+        cb(symbol, problem, state, k) = append!(sk_record, [(symbol, k)])
+        DouglasRachford(
+            M, f, [prox1a, prox2a], p;
+            callbacks = cb, stopping_criterion = StopAfterIteration(1)
+        )
+        @test sk_record == [
+            (:BeforeInit, 0), (:Init, 0), (:BeforeStop, 0),
+            (:BeforeStep, 1), (:FirstReflection, 1), (:ProximalMap, 1), (:SecondReflection, 1), (:Step, 1), (:BeforeStop, 1), (:Stop, 1),
+        ]
     end
     @testset "Number" begin
         M = Circle()

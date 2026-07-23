@@ -1,7 +1,4 @@
-s = joinpath(@__DIR__, "..", "ManoptTestSuite.jl")
-!(s in LOAD_PATH) && (push!(LOAD_PATH, s))
-
-using Manifolds, ManifoldsBase, Manopt, ManoptTestSuite, Test, Random
+using Manifolds, ManifoldsBase, Manopt, Test, Random
 using LinearAlgebra: I, tr, Symmetric, diagm, eigvals, eigvecs
 
 @testset "Adaptive Regularization with Cubics" begin
@@ -36,38 +33,49 @@ using LinearAlgebra: I, tr, Symmetric, diagm, eigvals, eigvecs
         X1 = similar(X0)
         Manopt.get_objective_preconditioner!(M, X1, arcmo, p0, X0)
         isapprox(M, p0, X1, get_preconditioner(M, mho, p0, X0))
+        @test startswith(repr(arcmo), "AdaptiveRegularizationWithCubicsModelObjective(")
+        @test startswith(Manopt.status_summary(arcmo), "The cubic polynomial based model for the sub problem of the Adaptive")
     end
 
     @testset "State and repr" begin
         arcs = AdaptiveRegularizationState(
-            M,
-            DefaultManoptProblem(M2, arcmo),
-            GradientDescentState(M2; p = zero_vector(M, p0));
+            M, DefaultManoptProblem(M2, arcmo), GradientDescentState(M2; p = zero_vector(M, p0));
             p = p0,
         )
         @test startswith(
-            repr(arcs),
+            Manopt.status_summary(arcs; context = :default),
             "# Solver state for `Manopt.jl`s Adaptive Regularization with Cubics (ARC)",
         )
+        @test startswith(repr(arcs), "AdaptiveRegularizationState(")
         p1 = rand(M)
         X1 = rand(M; vector_at = p1)
         set_iterate!(arcs, p1)
         @test arcs.p == p1
         set_gradient!(arcs, X1)
         @test arcs.X == X1
+        lst = LanczosState(M2; maxIterLanczos = 1)
+        @test startswith(repr(lst), "LanczosState(; ")
+        @test startswith(Manopt.status_summary(lst), "# Solver state for `Manopt.jl`s Lanczos Iteration")
+        @testset "Lanczos Callback" begin
+            lanczos_record = Tuple{Symbol, Int}[]
+            lanczos_cb(symbol, problem, state, k) = append!(lanczos_record, [(symbol, k)])
+            lst_cb = LanczosState(M2; maxIterLanczos = 1, callbacks = Dict(:Any => lanczos_cb))
+            solve!(DefaultManoptProblem(M2, arcmo), lst_cb)
+            @test lanczos_record == [
+                (:BeforeInit, 0),
+                (:Init, 0),
+                (:BeforeStop, 0),
+                (:Stop, 0),
+            ]
+        end
         arcs2 = AdaptiveRegularizationState(
-            M,
-            DefaultManoptProblem(M2, arcmo),
-            LanczosState(M2; maxIterLanczos = 1);
-            p = p0,
-            stopping_criterion = StopWhenAllLanczosVectorsUsed(1),
+            M, DefaultManoptProblem(M2, arcmo), lst; p = p0, stopping_criterion = StopWhenAllLanczosVectorsUsed(1),
         )
         #add a fake Lanczos
         push!(arcs2.sub_state.Lanczos_vectors, X1)
         # 1 Lanczos was reached
         @test stop_solver!(arcs2.sub_problem, arcs2.sub_state, 1)
         @test stop_solver!(arcs2.sub_problem, arcs2, 1)
-
         arcs3 = AdaptiveRegularizationState(
             M, DefaultManoptProblem(M2, arcmo), LanczosState(M2; maxIterLanczos = 2); p = p0
         )
@@ -77,12 +85,7 @@ using LinearAlgebra: I, tr, Symmetric, diagm, eigvals, eigvecs
         step_solver!(arcs3.sub_problem, arcs3.sub_state, 2) # to introduce a random new one
         # test orthogonality of the new 2 ones
         @test isapprox(
-            inner(
-                M,
-                p1,
-                arcs3.sub_state.Lanczos_vectors[1],
-                arcs3.sub_state.Lanczos_vectors[2],
-            ),
+            inner(M, p1, arcs3.sub_state.Lanczos_vectors[1], arcs3.sub_state.Lanczos_vectors[2]),
             0.0,
             atol = 1.0e-14,
         )
@@ -96,18 +99,13 @@ using LinearAlgebra: I, tr, Symmetric, diagm, eigvals, eigvecs
         step_solver!(arcs4.sub_problem, arcs4.sub_state, 2) # to introduce a random new one but copy to 2
         # test orthogonality of the new 2 ones
         @test isapprox(
-            inner(
-                M,
-                p1,
-                arcs4.sub_state.Lanczos_vectors[1],
-                arcs4.sub_state.Lanczos_vectors[2],
-            ),
+            inner(M, p1, arcs4.sub_state.Lanczos_vectors[1], arcs4.sub_state.Lanczos_vectors[2]),
             0.0,
             atol = 1.0e-14,
         )
 
         st1 = StopWhenFirstOrderProgress(0.5)
-        @test startswith(repr(st1), "StopWhenFirstOrderProgress(0.5)\n")
+        @test startswith(repr(st1), "StopWhenFirstOrderProgress(0.5)")
         @test Manopt.indicates_convergence(st1)
         @test get_reason(st1) == ""
         # fake a trigger
@@ -117,15 +115,36 @@ using LinearAlgebra: I, tr, Symmetric, diagm, eigvals, eigvecs
         @test length(get_reason(st1)) > 0
 
         st2 = StopWhenAllLanczosVectorsUsed(2)
-        @test startswith(repr(st2), "StopWhenAllLanczosVectorsUsed(2)\n")
+        @test startswith(repr(st2), "StopWhenAllLanczosVectorsUsed(2)")
+        @test startswith(Manopt.status_summary(st2), "Stop when all 2 Lanczos vectors are used")
         @test !Manopt.indicates_convergence(st2)
         @test startswith(
-            repr(arcs2.sub_state), "# Solver state for `Manopt.jl`s Lanczos Iteration\n"
+            Manopt.status_summary(arcs2.sub_state; context = :default),
+            "# Solver state for `Manopt.jl`s Lanczos Iteration\n"
         )
         @test get_reason(st2) == ""
         # manually trigger
         st2.at_iteration = 1
         @test length(get_reason(st2)) > 0
+
+        @testset "Callbacks" begin
+            sk_record = Tuple{Symbol, Int}[]
+            cb(symbol, problem, state, k) = append!(sk_record, [(symbol, k)])
+            p_cb = adaptive_regularization_with_cubics(
+                M, f, grad_f, p0;
+                θ = 0.5, σ = 100.0, callbacks = cb, retraction_method = PolarRetraction(),
+            )
+            @test isapprox(M, p_min, p_cb)
+            @test sk_record[1:6] == [
+                (:BeforeInit, 0),
+                (:Init, 0),
+                (:BeforeStop, 0),
+                (:BeforeStep, 1),
+                (:Step, 1),
+                (:BeforeStop, 1),
+            ]
+            @test sk_record[(end - 1):end] == [(:BeforeStop, sk_record[end - 1][2]), (:Stop, sk_record[end][2])]
+        end
 
         f1(M, p) = p
         f1!(M, q, p) = copyto!(M, q, p)
@@ -168,14 +187,8 @@ using LinearAlgebra: I, tr, Symmetric, diagm, eigvals, eigvecs
         @test isapprox(M, p_min, p4)
         # with a large η1 to trigger the bad model case once
         p5 = adaptive_regularization_with_cubics(
-            M,
-            f,
-            grad_f,
-            Hess_f;
-            θ = 0.5,
-            σ = 100.0,
-            η1 = 0.89,
-            retraction_method = PolarRetraction(),
+            M, f, grad_f, Hess_f;
+            θ = 0.5, σ = 100.0, η1 = 0.89, retraction_method = PolarRetraction(),
         )
         @test isapprox(M, p_min, p5)
 
@@ -201,24 +214,14 @@ using LinearAlgebra: I, tr, Symmetric, diagm, eigvals, eigvecs
 
         sub_problem = DefaultManoptProblem(M2, arcmo)
         sub_state = GradientDescentState(
-            M2;
-            p = zero_vector(M, p0),
-            stopping_criterion = StopAfterIteration(500) |
-                StopWhenGradientNormLess(1.0e-11) |
-                StopWhenFirstOrderProgress(0.1),
+            M2; p = zero_vector(M, p0),
+            stopping_criterion = StopAfterIteration(500) | StopWhenGradientNormLess(1.0e-11) | StopWhenFirstOrderProgress(0.1),
         )
         q3 = copy(M, p0)
         adaptive_regularization_with_cubics!(
-            M,
-            mho,
-            q3;
-            θ = 0.5,
-            σ = 100.0,
-            retraction_method = PolarRetraction(),
-            sub_problem = sub_problem,
-            sub_state = sub_state,
-            return_objective = true,
-            return_state = true,
+            M, mho, q3; θ = 0.5, σ = 100.0,
+            retraction_method = PolarRetraction(), sub_problem = sub_problem, sub_state = sub_state,
+            return_objective = true, return_state = true,
         )
         @test isapprox(M, p_min, q3)
 
@@ -228,7 +231,7 @@ using LinearAlgebra: I, tr, Symmetric, diagm, eigvals, eigvecs
     end
 
     @testset "A short solver run on the circle" begin
-        Mc, fc, grad_fc, pc0, pc_star = ManoptTestSuite.Circle_mean_task()
+        Mc, fc, grad_fc, pc0, pc_star = Manopt.Test.Circle_mean_task()
         hess_fc(Mc, p, X) = 1.0
         p0 = 0.2
         p1 = adaptive_regularization_with_cubics(

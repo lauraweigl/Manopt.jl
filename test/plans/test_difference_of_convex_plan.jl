@@ -1,7 +1,4 @@
-s = joinpath(@__DIR__, "..", "ManoptTestSuite.jl")
-!(s in LOAD_PATH) && (push!(LOAD_PATH, s))
-
-using LRUCache, LinearAlgebra, Manifolds, Manopt, ManoptTestSuite, Test
+using LRUCache, LinearAlgebra, Manifolds, Manopt, Test
 
 @testset "Difference of Convex Plan" begin
     n = 2
@@ -13,6 +10,7 @@ using LRUCache, LinearAlgebra, Manifolds, Manopt, ManoptTestSuite, Test
     grad_g(M, p) = 4 * log(det(p))^3 * p
     grad_g!(M, X, p) = (X .= 4 * log(det(p))^3 * p)
     f(M, p) = g(M, p) - h(M, p)
+    grad_f(M, p) = grad_g(M, p) - grad_h(M, p)
     p = log(2) * Matrix{Float64}(I, n, n)
     G = grad_g(M, p)
 
@@ -61,7 +59,7 @@ using LRUCache, LinearAlgebra, Manifolds, Manopt, ManoptTestSuite, Test
     end
     @testset "Objective Decorator passthrough" begin
         for obj in [dc_obja, dc_obji, dcp_obja, dcp_obji]
-            ddo = ManoptTestSuite.DummyDecoratedObjective(obj)
+            ddo = Manopt.Test.DummyDecoratedObjective(obj)
             X = get_subtrahend_gradient(M, ddo, p)
             @test X == get_subtrahend_gradient(M, obj, p)
             Y = zero_vector(M, p)
@@ -105,5 +103,23 @@ using LRUCache, LinearAlgebra, Manifolds, Manopt, ManoptTestSuite, Test
             @test X == get_subtrahend_gradient(M, cddo, 2 .* p) # Cached
             @test get_count(ddo, :SubtrahendGradient) == 2
         end
+    end
+    @testset "show/repr and status_summary" begin
+        dc_obj_ga = ManifoldDifferenceOfConvexObjective(f, grad_h; gradient = grad_g)
+        s1 = repr(dc_obja)
+        @test startswith(s1, "ManifoldDifferenceOfConvexObjective(f, grad_h;")
+        s2 = repr(dc_obj_ga)
+        @test startswith(s2, "ManifoldDifferenceOfConvexObjective(f, grad_h;")
+        @test contains(s2, "gradient = grad_g")
+        s3 = Manopt.status_summary(dc_obja; context = :default)
+        @test contains(s3, "## Functions")
+        dcp_obj_ga = ManifoldDifferenceOfConvexProximalObjective(grad_h; gradient = grad_f, cost = f)
+        s4 = repr(dcp_obja)
+        @test startswith(s4, "ManifoldDifferenceOfConvexProximalObjective(grad_h;")
+        s5 = repr(dcp_obj_ga)
+        @test startswith(s5, "ManifoldDifferenceOfConvexProximalObjective(grad_h;")
+        @test contains(s5, "gradient = grad_f")
+        s6 = Manopt.status_summary(dcp_obja; context = :default)
+        @test contains(s6, "## Functions")
     end
 end

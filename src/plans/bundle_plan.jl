@@ -1,5 +1,5 @@
 #
-# Common files for bunlde-based solvers
+# Common files for bundle-based solvers
 #
 
 function convex_bundle_method_subsolver end
@@ -17,17 +17,20 @@ The computation can also be done in-place of `λ`.
 The subproblem for the convex bundle method is
 ```math
 \\begin{align*}
-    $(_tex(:argmin))_{λ ∈ ℝ^{$(_tex(:abs, "J_k"))}
+    $(_tex(:argmin))_{λ ∈ ℝ^{$(_tex(:abs, "J_k"))}}
     &
-    $(_tex(:frac, "1", "2"))$(_tex(:Bigl))\\lVert $(_tex(:sum, "j ∈ J_k")) λ_j $(_tex(:rm, "P"))_{p_k←q_j} X_{q_j} $(_tex(:Bigl))\\rVert^2
-    + $(_tex(:sum, "j ∈ J_k")), "λ_j \\, c_j^k"
+    $(_tex(:frac, "1", "2"))
+    $(_tex(:Bigl))\\lVert
+    $(_tex(:sum, "j ∈ J_k")) λ_j $(_tex(:rm, "P"))_{p_k←q_j} X_{q_j}
+    $(_tex(:Bigl))\\rVert^2
+    + $(_tex(:sum, "j ∈ J_k")) λ_jc_j^k
     \\\\
     $(_tex(:text, "s. t."))$(_tex(:quad)) &
     $(_tex(:sum, "j ∈ J_k")) λ_j = 1,
     $(_tex(:quad)) λ_j ≥ 0
     $(_tex(:quad)) $(_tex(:text, "for all "))
     j ∈ J_k,
-\end{align*}
+\\end{align*}
 ```
 
 where ``J_k = $(_tex(:set, "j ∈ J_{k-1} \\ | \\ λ_j > 0")) ∪ $(_tex(:set, "k"))``.
@@ -52,8 +55,8 @@ solver for the subproblem of the proximal bundle method.
 The subproblem for the proximal bundle method is
 ```math
 \\begin{align*}
-    $(_tex(:argmin))_{λ ∈ ℝ^{$(_tex(:abs, "L_l"))} &
-    $(_tex(:frac, "1", "2 μ_l")) $(_tex(:Bigl)) \\lVert $(_tex(:sum, "j ∈ L_l")) λ_j $(_tex(:rm, "P"))_{p_k←q_j} X_{q_j}$(_tex(:Bigr))\rVert^2
+    $(_tex(:argmin))_{λ ∈ ℝ^{$(_tex(:abs, "L_l"))}} &
+    $(_tex(:frac, "1", "2 μ_l")) $(_tex(:Bigl)) \\lVert $(_tex(:sum, "j ∈ L_l")) λ_j $(_tex(:rm, "P"))_{p_k←q_j} X_{q_j}$(_tex(:Bigr))\\rVert^2
     + $(_tex(:sum, "j ∈ L_l")) "λ_j \\, c_j^k
     \\\\
     $(_tex(:text, "s. t.")) $(_tex(:quad)) &
@@ -140,20 +143,20 @@ function get_reason(sc::StopWhenLagrangeMultiplierLess)
     return ""
 end
 
-function status_summary(sc::StopWhenLagrangeMultiplierLess)
+function status_summary(sc::StopWhenLagrangeMultiplierLess; context::Symbol = :default)
     s = (sc.at_iteration >= 0) ? "reached" : "not reached"
     msg = "Lagrange multipliers"
     isnothing(sc.names) && (msg *= " with tolerances $(sc.tolerances)")
     if !isnothing(sc.names)
         msg *= join(["$si < $bi" for (si, bi) in zip(sc.names, sc.tolerances)], ", ")
     end
-    return "$(msg) :\t$(s)"
+    return (_is_inline(context) ? "" : "A stopping criterion to stop when the Lagrange multipliers are less than $(sc.tolerances).\n$(_MANOPT_INDENT)") * "$(msg):$(_MANOPT_INDENT)$(s)"
 end
 function show(io::IO, sc::StopWhenLagrangeMultiplierLess)
     n = isnothing(sc.names) ? "" : ", $(names)"
     return print(
         io,
-        "StopWhenLagrangeMultiplierLess($(sc.tolerances); mode=:$(sc.mode)$n)\n    $(status_summary(sc))",
+        "StopWhenLagrangeMultiplierLess($(sc.tolerances); mode=:$(sc.mode)$n)",
     )
 end
 
@@ -181,6 +184,12 @@ mutable struct DebugWarnIfLagrangeMultiplierIncreases <: DebugAction
         return new(warn, Float64(Inf), tol)
     end
 end
-function show(io::IO, di::DebugWarnIfLagrangeMultiplierIncreases)
-    return print(io, "DebugWarnIfLagrangeMultiplierIncreases(; tol=\"$(di.tol)\")")
+function show(io::IO, d::DebugWarnIfLagrangeMultiplierIncreases)
+    m = (d.status === :No ? "" : ":$(d.status)")
+    return print(io, "DebugWarnIfLagrangeMultiplierIncreases($(m); tol=\"$(d.tol)\")")
+end
+function status_summary(d::DebugWarnIfLagrangeMultiplierIncreases; context::Symbol = :default)
+    (context === :short) && return repr(d)
+    m = (d.status === :Once) ? "once" : (d.status === :No ? "(inactive)" : "")
+    return "a DebugAction warning if the lagange multiplier increases in an iteration $m."
 end

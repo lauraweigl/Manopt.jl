@@ -2,14 +2,14 @@ _doc_IPN_subsystem = """
 ```math
   $(_tex(:operatorname, "J")) F(p, μ, λ, s)[X, Y, Z, W] = -F(p, μ, λ, s),
   $(_tex(:text, " where "))
-  X ∈ $(_math(:TpM)), Y,W ∈ ℝ^m, Z ∈ ℝ^n
+  X ∈ $(_math(:TangentSpace)), Y,W ∈ ℝ^m, Z ∈ ℝ^n
 ```
 """
 _doc_IPN = """
     interior_point_Newton(M, f, grad_f, Hess_f, p=rand(M); kwargs...)
     interior_point_Newton(M, cmo::ConstrainedManifoldObjective, p=rand(M); kwargs...)
     interior_point_Newton!(M, f, grad]_f, Hess_f, p; kwargs...)
-    interior_point_Newton(M, ConstrainedManifoldObjective, p; kwargs...)
+    interior_point_Newton!(M, cmo::ConstrainedManifoldObjective, p; kwargs...)
 
 perform the interior point Newton method following [LaiYoshise:2024](@cite).
 
@@ -24,7 +24,7 @@ $(_doc_IPN_subsystem)
 
 see [`CondensedKKTVectorFieldJacobian`](@ref) and [`CondensedKKTVectorField`](@ref), respectively,
 for the reduced form, this is usually solved in.
-From the resulting `X` and `Z` in the reeuced form, the other two, ``Y``, ``W``, are then computed.
+From the resulting `X` and `Z` in the reduced form, the other two, ``Y``, ``W``, are then computed.
 
 From the gradient ``(X,Y,Z,W)`` at the current iterate ``(p, μ, λ, s)``,
 a line search is performed using the [`KKTVectorFieldNormSq`](@ref) norm of the KKT vector field (squared)
@@ -33,16 +33,12 @@ and its gradient [`KKTVectorFieldNormSqGradient`](@ref) together with the [`Inte
 Note that since the vector field ``F`` includes the gradients of the constraint
 functions ``g, h``, its gradient or Jacobian requires the Hessians of the constraints.
 
-For that seach direction a line search is performed, that additionally ensures that
+For that search direction a line search is performed, that additionally ensures that
 the constraints are further fulfilled.
 
 # Input
 
-$(_var(:Argument, :M))
-$(_var(:Argument, :f))
-$(_var(:Argument, :grad_f))
-$(_var(:Argument, :Hess_f))
-$(_var(:Argument, :p))
+$(_args([:M, :f, :grad_f, :Hess_f, :p]))
 
 or a [`ConstrainedManifoldObjective`](@ref) `cmo` containing `f`, `grad_f`, `Hess_f`, and the constraints
 
@@ -51,11 +47,12 @@ or a [`ConstrainedManifoldObjective`](@ref) `cmo` containing `f`, `grad_f`, `Hes
 The keyword arguments related to the constraints (the first eleven) are ignored if you
 pass a [`ConstrainedManifoldObjective`](@ref) `cmo`
 
+$(_kwargs(:callbacks; add_properties = [:process_note]))
 * `centrality_condition=missing`; an additional condition when to accept a step size.
   This can be used to ensure that the resulting iterate is still an interior point if you provide a check `(N,q) -> true/false`,
   where `N` is the manifold of the `step_problem`.
 * `equality_constraints=nothing`: the number ``n`` of equality constraints.
-$(_var(:Keyword, :evaluation))
+$(_kwargs(:evaluation))
 * `g=nothing`: the inequality constraints
 * `grad_g=nothing`: the gradient of the inequality constraints
 * `grad_h=nothing`: the gradient of the equality constraints
@@ -68,16 +65,17 @@ $(_var(:Keyword, :evaluation))
 * `inequality_constraints=nothing`: the number ``m`` of inequality constraints.
 * `λ=ones(length(h(M, p)))`: the Lagrange multiplier with respect to the equality constraints ``h``
 * `μ=ones(length(g(M, p)))`: the Lagrange multiplier with respect to the inequality constraints ``g``
-$(_var(:Keyword, :retraction_method))
+$(_kwargs(:retraction_method))
 * `ρ=μ's / length(μ)`:  store the orthogonality `μ's/m` to compute the barrier parameter `β` in the sub problem.
 * `s=copy(μ)`: initial value for the slack variables
 * `σ=`[`calculate_σ`](@ref)`(M, cmo, p, μ, λ, s)`:  scaling factor for the barrier parameter `β` in the sub problem, which is updated during the iterations
 * `step_objective`: a [`ManifoldGradientObjective`](@ref) of the norm of the KKT vector field [`KKTVectorFieldNormSq`](@ref) and its gradient [`KKTVectorFieldNormSqGradient`](@ref)
-* `step_problem`: the manifold ``$(_math(:M)) × ℝ^m × ℝ^n × ℝ^m`` together with the `step_objective`
-  as the problem the linesearch `stepsize=` employs for determining a step size
+* `step_problem`: the manifold ``$(_math(:Manifold)) × ℝ^m × ℝ^n × ℝ^m`` together with the `step_objective`
+  as the problem the line search `stepsize=` employs for determining a step size
 * `step_state`: the [`StepsizeState`](@ref) with point and search direction
-$(_var(:Keyword, :stepsize; default = "[`ArmijoLinesearch`](@ref)`()`", add = " with the `centrality_condtion` keyword as additional criterion to accept a step, if this is provided"))
-$(_var(:Keyword, :stopping_criterion; default = "[`StopAfterIteration`](@ref)`(200)`[` | `](@ref StopWhenAny)[`StopWhenKKTResidualLess`](@ref)`(1e-8)`"))
+$(_kwargs(:stepsize; default = "`[`ArmijoLinesearch`](@ref)`()"))
+  with the `centrality_condition` keyword as additional criterion to accept a step, if this is provided"))
+$(_kwargs(:stopping_criterion; default = "`[`StopAfterIteration`](@ref)`(200)`[` | `](@ref StopWhenAny)[`StopWhenKKTResidualLess`](@ref)`(1e-8)"))
   a stopping criterion, by default depending on the residual of the KKT vector field or a maximal number of steps, which ever hits first.
 * `sub_kwargs=(;)`: keyword arguments to decorate the sub options, for example debug, that automatically respects the main solvers debug options (like sub-sampling) as well
 * `sub_objective`: The [`SymmetricLinearSystemObjective`](@ref) modelling the system of equations to use in the sub solver,
@@ -85,14 +83,15 @@ $(_var(:Keyword, :stopping_criterion; default = "[`StopAfterIteration`](@ref)`(2
   $(_note(:KeywordUsedIn, "sub_problem"))
 * `sub_stopping_criterion=`[`StopAfterIteration`](@ref)`(manifold_dimension(M))`[` | `](@ref StopWhenAny)[`StopWhenRelativeResidualLess`](@ref)`(c,1e-8)`, where ``c = $(_tex(:norm, "b"))`` from the system to solve.
   $(_note(:KeywordUsedIn, "sub_state"))
-$(_var(:Keyword, :sub_problem; default = "[`DefaultManoptProblem`](@ref)`(M, sub_objective)`"))
-$(_var(:Keyword, :sub_state; default = "[`ConjugateResidualState`](@ref)"))
+$(_kwargs(:sub_problem; default = "`[`DefaultManoptProblem`](@ref)`(M, sub_objective)"))
+$(_kwargs(:sub_state; default = "`[`ConjugateResidualState`](@ref)` "))
 * `vector_space=`[`Rn`](@ref Manopt.Rn) a function that, given an integer, returns the manifold to be used for the vector space components ``ℝ^m,ℝ^n``
 * `X=`[`zero_vector`](@extref `ManifoldsBase.zero_vector-Tuple{AbstractManifold, Any}`)`(M,p)`:
-  th initial gradient with respect to `p`.
-* `Y=zero(μ)`:  the initial gradient with respct to `μ`
-* `Z=zero(λ)`:  the initial gradient with respct to `λ`
-* `W=zero(s)`:  the initial gradient with respct to `s`
+  the initial gradient with respect to `p`.
+* `Y=zero(μ)`: the initial gradient with respect to `μ`
+* `Z=zero(λ)`: the initial gradient with respect to `λ`
+* `W=zero(s)`: the initial gradient with respect to `s`
+* `is_feasible_error=:error`: specify how to handle infeasible starting points, see [`is_feasible`](@ref) for options.
 
 As well as internal keywords used to set up these given keywords like `_step_M`, `_step_p`, `_sub_M`, `_sub_p`, and `_sub_X`,
 that should not be changed.
@@ -102,7 +101,7 @@ All other keyword arguments are passed to [`decorate_state!`](@ref) for state de
 
 !!! note
 
-    The `centrality_condition=mising` disables to check centrality during the line search,
+    The `centrality_condition=missing` disables to check centrality during the line search,
     but you can pass [`InteriorPointCentralityCondition`](@ref)`(cmo, γ)`, where `γ` is a constant,
     to activate this check.
 
@@ -115,37 +114,22 @@ To obtain the whole final state of the solver, see [`get_solver_return`](@ref) f
 @doc "$(_doc_IPN)"
 interior_point_Newton(M::AbstractManifold, args...; kwargs...)
 function interior_point_Newton(
-        M::AbstractManifold,
-        f,
-        grad_f,
-        Hess_f,
-        p = rand(M);
+        M::AbstractManifold, f, grad_f, Hess_f, p = rand(M);
         evaluation::AbstractEvaluationType = AllocatingEvaluation(),
-        g = nothing,
-        h = nothing,
-        grad_g = nothing,
-        grad_h = nothing,
-        Hess_g = nothing,
-        Hess_h = nothing,
-        inequality_constrains::Union{Integer, Nothing} = nothing,
-        equality_constrains::Union{Nothing, Integer} = nothing,
+        g = nothing, h = nothing,
+        grad_g = nothing, grad_h = nothing,
+        Hess_g = nothing, Hess_h = nothing,
+        inequality_constraints::Union{Integer, Nothing} = nothing,
+        equality_constraints::Union{Nothing, Integer} = nothing,
         kwargs...,
     )
     cmo = ConstrainedManifoldObjective(
-        f,
-        grad_f,
-        g,
-        grad_g,
-        h,
-        grad_h;
-        hess_f = Hess_f,
-        hess_g = Hess_g,
-        hess_h = Hess_h,
+        f, grad_f, g, grad_g, h, grad_h;
+        hess_f = Hess_f, hess_g = Hess_g, hess_h = Hess_h,
         evaluation = evaluation,
-        inequality_constrains = inequality_constrains,
-        equality_constrains = equality_constrains,
-        M = M,
-        p = p,
+        inequality_constraints = inequality_constraints,
+        equality_constraints = equality_constraints,
+        M = M, p = p,
     )
     return interior_point_Newton(M, cmo, p; evaluation = evaluation, kwargs...)
 end
@@ -162,45 +146,29 @@ calls_with_kwargs(::typeof(interior_point_Newton)) = (interior_point_Newton!,)
 interior_point_Newton!(M::AbstractManifold, args...; kwargs...)
 
 function interior_point_Newton!(
-        M::AbstractManifold,
-        f,
-        grad_f,
-        Hess_f,
-        p;
+        M::AbstractManifold, f, grad_f, Hess_f, p;
         evaluation::AbstractEvaluationType = AllocatingEvaluation(),
-        g = nothing,
-        h = nothing,
-        grad_g = nothing,
-        grad_h = nothing,
-        Hess_g = nothing,
-        Hess_h = nothing,
+        g = nothing, h = nothing,
+        grad_g = nothing, grad_h = nothing,
+        Hess_g = nothing, Hess_h = nothing,
         inequality_constraints = nothing,
         equality_constraints = nothing,
         kwargs...,
     )
     cmo = ConstrainedManifoldObjective(
-        f,
-        grad_f,
-        g,
-        grad_g,
-        h,
-        grad_h;
-        hess_f = Hess_f,
-        hess_g = Hess_g,
-        hess_h = Hess_h,
+        f, grad_f, g, grad_g, h, grad_h;
+        hess_f = Hess_f, hess_g = Hess_g, hess_h = Hess_h,
         evaluation = evaluation,
         equality_constraints = equality_constraints,
         inequality_constraints = inequality_constraints,
-        M = M,
-        p = p,
+        M = M, p = p,
     )
     dcmo = decorate_objective!(M, cmo; kwargs...)
     return interior_point_Newton!(M, dcmo, p; evaluation = evaluation, kwargs...)
 end
 function interior_point_Newton!(
-        M::AbstractManifold,
-        cmo::O,
-        p;
+        M::AbstractManifold, cmo::O, p;
+        callbacks = Dict{Symbol, Function}(),
         evaluation::AbstractEvaluationType = AllocatingEvaluation(),
         X = get_gradient(M, cmo, p),
         μ::AbstractVector = ones(inequality_constraints_length(cmo)),
@@ -219,11 +187,12 @@ function interior_point_Newton!(
         step_objective = ManifoldGradientObjective(
             KKTVectorFieldNormSq(cmo), KKTVectorFieldNormSqGradient(cmo); evaluation = evaluation
         ),
-        _step_M::AbstractManifold = M × vector_space(length(μ)) × vector_space(length(λ)) ×
-            vector_space(length(s)),
+        _step_M::AbstractManifold = ProductManifold(
+            M, vector_space(length(μ)), vector_space(length(λ)), vector_space(length(s)),
+        ),
         step_problem = DefaultManoptProblem(_step_M, step_objective),
         _step_p = rand(_step_M),
-        step_state = StepsizeState(_step_p, zero_vector(_step_M, _step_p)),
+        step_state = StepsizeState(; p = _step_p, X = zero_vector(_step_M, _step_p)),
         stepsize::Union{Stepsize, ManifoldDefaultsFactory} = ArmijoLinesearch(
             _step_M;
             retraction_method = default_retraction_method(_step_M),
@@ -236,7 +205,7 @@ function interior_point_Newton!(
         ),
         stopping_criterion::StoppingCriterion = StopAfterIteration(800) |
             StopWhenKKTResidualLess(1.0e-8),
-        _sub_M = M × vector_space(length(λ)),
+        _sub_M = ProductManifold(M, vector_space(length(λ))),
         _sub_p = rand(_sub_M),
         _sub_X = rand(_sub_M; vector_at = _sub_p),
         sub_objective = decorate_objective!(
@@ -249,7 +218,7 @@ function interior_point_Newton!(
         ),
         sub_stopping_criterion::StoppingCriterion = StopAfterIteration(manifold_dimension(M)) |
             StopWhenRelativeResidualLess(
-            norm(_sub_M, _sub_p, get_b(TangentSpace(_sub_M, _sub_p), sub_objective)), 1.0e-8
+            norm(_sub_M, _sub_p, get_vector_field(TangentSpace(_sub_M, _sub_p), sub_objective)), 1.0e-8
         ),
         sub_state::St = decorate_state!(
             ConjugateResidualState(
@@ -262,34 +231,26 @@ function interior_point_Newton!(
             sub_kwargs...,
         ),
         sub_problem::Pr = DefaultManoptProblem(TangentSpace(_sub_M, _sub_p), sub_objective),
+        is_feasible_error = :error,
         kwargs...,
     ) where {
         O <: Union{ConstrainedManifoldObjective, AbstractDecoratedManifoldObjective},
         St <: AbstractManoptSolverState,
         Pr <: Union{F, AbstractManoptProblem} where {F},
     }
-    !is_feasible(M, cmo, p; error = :error)
+    !is_feasible(M, cmo, p; error = is_feasible_error)
     keywords_accepted(interior_point_Newton!; kwargs...)
     dcmo = decorate_objective!(M, cmo; kwargs...)
     dmp = DefaultManoptProblem(M, dcmo)
     ips = InteriorPointNewtonState(
-        M,
-        cmo,
-        sub_problem,
-        sub_state;
-        p = p,
-        X = X,
-        Y = Y,
-        Z = Z,
-        W = W,
-        μ = μ,
-        λ = λ,
-        s = s,
+        M, cmo, sub_problem, sub_state;
+        callbacks = process_callbacks_arg(callbacks, InteriorPointNewtonState),
+        p = p, X = X, Y = Y, Z = Z, W = W, μ = μ, λ = λ, s = s,
         stopping_criterion = stopping_criterion,
         retraction_method = retraction_method,
-        step_problem = step_problem,
-        step_state = step_state,
-        stepsize = _produce_type(stepsize, _step_M),
+        step_problem = step_problem, step_state = step_state,
+        stepsize = _produce_type(stepsize, _step_M, _step_p),
+        is_feasible_error = is_feasible_error,
         kwargs...,
     )
     ips = decorate_state!(ips; kwargs...)
@@ -301,7 +262,7 @@ calls_with_kwargs(::typeof(interior_point_Newton!)) = (decorate_objective!, deco
 function initialize_solver!(amp::AbstractManoptProblem, ips::InteriorPointNewtonState)
     M = get_manifold(amp)
     cmo = get_objective(amp)
-    !is_feasible(M, cmo, ips.p; error = :error)
+    !is_feasible(M, cmo, ips.p; error = ips.is_feasible_error)
     return ips
 end
 
@@ -320,8 +281,9 @@ function step_solver!(amp::AbstractManoptProblem, ips::InteriorPointNewtonState,
     set_parameter!(ips.sub_problem, :Objective, :s, ips.s)
     set_parameter!(ips.sub_problem, :Objective, :β, ips.ρ * ips.σ)
     # product manifold on which to perform linesearch
-
+    callback(:BeforeSubsolver, amp, ips, k)
     X2 = get_solver_result(solve!(ips.sub_problem, ips.sub_state))
+    callback(:Subsolver, amp, ips, k)
     ips.X, ips.Z = submanifold_components(N, X2) #for p and λ
 
     # Compute the remaining part of the solution
@@ -359,6 +321,7 @@ function step_solver!(amp::AbstractManoptProblem, ips::InteriorPointNewtonState,
     set_parameter!(ips.stepsize, :DecreaseCondition, :τ, N, q)
     # determine stepsize
     α = ips.stepsize(ips.step_problem, ips.step_state, k; gradient = X)
+    callback(:Stepsize, amp, ips, k)
     # Update Parameters and slack
     retract!(M, ips.p, ips.p, α * ips.X, ips.retraction_method)
     if m > 0

@@ -6,20 +6,21 @@ all necessary fields.
 
 # Fields
 
+$(_fields(:callbacks; add_properties = [:as_dict]))
 * `direction_update`:              an [`AbstractQuasiNewtonDirectionUpdate`](@ref) rule.
 * `η`:                             the current update direction
 * `nondescent_direction_behavior`: a `Symbol` to specify how to handle direction that are not descent ones.
 * `nondescent_direction_value`:    the value from the last inner product from checking for descent directions
-$(_var(:Field, :p; add = [:as_Iterate]))
+$(_fields(:p; add_properties = [:as_Iterate]))
 * `p_old`:                         the last iterate
 * `preconditioner`                 an [`QuasiNewtonPreconditioner`](@ref)
 * `sk`:                            the current step
-* `yk`:                            the current gradient difference
-$(_var(:Field, :retraction_method))
-$(_var(:Field, :stepsize))
-$(_var(:Field, :stopping_criterion, "stop"))
-$(_var(:Field, :X; add = [:as_Gradient]))
+$(_fields([:retraction_method, :stepsize]))
+$(_fields(:stopping_criterion; name = "stop"))
+$(_fields(:X; add_properties = [:as_Gradient]))
+$(_fields([:vector_transport_method]))
 * `X_old`:                         the last gradient
+* `yk`:                            the current gradient difference
 
 
 # Constructor
@@ -30,106 +31,97 @@ Generate the Quasi Newton state on the manifold `M` with start point `p`.
 
 ## Keyword arguments
 
+$(_kwargs(:callbacks; show_type = false, add_properties = [:as_dict]))
 * `direction_update=`[`QuasiNewtonLimitedMemoryDirectionUpdate`](@ref)`(M, p, InverseBFGS(), memory_size; vector_transport_method=vector_transport_method)`
-$(_var(:Keyword, :stopping_criterion; default = "[`StopAfterIteration`](@ref)`(1000)`$(_sc(:Any))[`StopWhenGradientNormLess`](@ref)`(1e-6)`"))
-* `initial_scale=1.0`: a realtive initial scale. By default deactivated when using a preconditioner.
+$(_kwargs(:stopping_criterion; default = "`[`StopAfterIteration`](@ref)`(1000)`$(_sc(:Any))[`StopWhenGradientNormLess`](@ref)`(1e-6)"))
+* `initial_scale=1.0`: a relative initial scale. By default deactivated when using a preconditioner.
 * `memory_size=20`: a shortcut to set the memory in the default direction update
 * `preconditioner::Union{`[`QuasiNewtonPreconditioner`](@ref)`, Nothing} = nothing` specify a preconditioner or deactivate by passing `nothing`.
-$(_var(:Keyword, :retraction_method))
-$(_var(:Keyword, :stepsize; default = "[`default_stepsize`](@ref)`(M, QuasiNewtonState)`"))
-$(_var(:Keyword, :vector_transport_method))
-$(_var(:Keyword, :X; add = :as_Memory))
+$(_kwargs(:retraction_method))
+$(_kwargs(:stepsize; default = "`[`default_stepsize`](@ref)`(M, `[`QuasiNewtonState`](@ref)`)"))
+$(_kwargs(:vector_transport_method))
+$(_kwargs(:X; add_properties = [:as_Memory]))
 
 # See also
 
 [`quasi_Newton`](@ref)
 """
 mutable struct QuasiNewtonState{
-        P,
-        T,
-        D <: AbstractQuasiNewtonDirectionUpdate,
-        SC <: StoppingCriterion,
-        S <: Stepsize,
-        RTR <: AbstractRetractionMethod,
-        VT <: AbstractVectorTransportMethod,
-        R,
-        TPrecon <: QuasiNewtonPreconditioner,
+        P, T, D <: AbstractQuasiNewtonDirectionUpdate,
+        C <: AbstractDict{Symbol},
+        SC <: StoppingCriterion, S <: Stepsize,
+        RTR <: AbstractRetractionMethod, VT <: AbstractVectorTransportMethod,
+        R, TPrecon <: QuasiNewtonPreconditioner,
     } <: AbstractGradientSolverState
+    callbacks::C
+    direction_update::D
+    η::T
+    nondescent_direction_behavior::Symbol
+    nondescent_direction_value::R
     p::P
     p_old::P
-    η::T
-    X::T
-    sk::T
-    yk::T
-    direction_update::D
     preconditioner::TPrecon
+    sk::T
     retraction_method::RTR
     stepsize::S
     stop::SC
-    X_old::T
     vector_transport_method::VT
-    nondescent_direction_behavior::Symbol
-    nondescent_direction_value::R
-end
-function QuasiNewtonState(
-        M::AbstractManifold;
-        p::P = rand(M),
-        initial_vector::T = zero_vector(M, p), # deprecated
-        X::T = initial_vector,
-        vector_transport_method::VTM = default_vector_transport_method(M, typeof(p)),
-        preconditioner::Union{QuasiNewtonPreconditioner, Nothing} = nothing,
-        initial_scale::Union{<:Real, Nothing} = isnothing(preconditioner) ? 1.0 : nothing,
-        memory_size::Int = 20,
-        direction_update::D = QuasiNewtonLimitedMemoryDirectionUpdate(
-            M,
-            p,
-            InverseBFGS(),
-            memory_size;
-            vector_transport_method = vector_transport_method,
-            initial_scale = initial_scale,
-        ),
-        stopping_criterion::SC = StopAfterIteration(1000) | StopWhenGradientNormLess(1.0e-6),
-        retraction_method::RM = default_retraction_method(M, typeof(p)),
-        stepsize::S = default_stepsize(
-            M,
-            QuasiNewtonState;
-            retraction_method = retraction_method,
-            vector_transport_method = vector_transport_method,
-        ),
-        nondescent_direction_behavior::Symbol = :reinitialize_direction_update,
-        kwargs..., # collect but ignore rest to be more tolerant
-    ) where {
-        P,
-        T,
-        D <: AbstractQuasiNewtonDirectionUpdate,
-        SC <: StoppingCriterion,
-        S <: Stepsize,
-        RM <: AbstractRetractionMethod,
-        VTM <: AbstractVectorTransportMethod,
-    }
-    precon = if isnothing(preconditioner)
-        QuasiNewtonPreconditioner((M, p, X) -> X)
-    else
-        preconditioner
+    yk::T
+    X::T
+    X_old::T
+    function QuasiNewtonState(
+            M::AbstractManifold;
+            callbacks::C = Dict{Symbol, Function}(),
+            p::P = rand(M),
+            initial_vector::T = zero_vector(M, p), # deprecated
+            X::T = initial_vector,
+            vector_transport_method::VTM = default_vector_transport_method(M, typeof(p)),
+            preconditioner::Union{QuasiNewtonPreconditioner, Nothing} = nothing,
+            initial_scale::Union{<:Real, Nothing} = isnothing(preconditioner) ? 1.0 : nothing,
+            memory_size::Int = 20,
+            direction_update::D = QuasiNewtonLimitedMemoryDirectionUpdate(
+                M, p, InverseBFGS(), memory_size;
+                vector_transport_method = vector_transport_method, initial_scale = initial_scale,
+            ),
+            stopping_criterion::SC = StopAfterIteration(1000) | StopWhenGradientNormLess(1.0e-6),
+            retraction_method::RM = default_retraction_method(M, typeof(p)),
+            stepsize::S = default_stepsize(
+                M, QuasiNewtonState;
+                retraction_method = retraction_method, vector_transport_method = vector_transport_method,
+            ),
+            nondescent_direction_behavior::Symbol = :reinitialize_direction_update,
+            kwargs...,
+        ) where {
+            P, T, D <: AbstractQuasiNewtonDirectionUpdate, C <: AbstractDict{Symbol},
+            SC <: StoppingCriterion, S <: Stepsize, RM <: AbstractRetractionMethod, VTM <: AbstractVectorTransportMethod,
+        }
+        precon = isnothing(preconditioner) ? QuasiNewtonPreconditioner((M, p, X) -> X) : preconditioner
+        return QuasiNewtonState(;
+            p = p, p_old = copy(M, p), η = copy(M, p, X), X = X, sk = copy(M, p, X), yk = copy(M, p, X),
+            callbacks = callbacks, direction_update = direction_update, preconditioner = precon,
+            retraction_method = retraction_method, stepsize = stepsize, stopping_criterion = stopping_criterion,
+            X_old = copy(M, p, X), vector_transport_method = vector_transport_method,
+            nondescent_direction_behavior = nondescent_direction_behavior, nondescent_direction_value = 1.0
+        )
     end
-    return QuasiNewtonState{P, T, D, SC, S, RM, VTM, Float64, typeof(precon)}(
-        p,
-        copy(M, p),
-        copy(M, p, X),
-        X,
-        copy(M, p, X),
-        copy(M, p, X),
-        direction_update,
-        precon,
-        retraction_method,
-        stepsize,
-        stopping_criterion,
-        copy(M, p, X),
-        vector_transport_method,
-        nondescent_direction_behavior,
-        1.0,
-    )
+    function QuasiNewtonState(;
+            callbacks::C,
+            p::P, p_old::P, η::T, X::T, sk::T, yk::T, direction_update::D, preconditioner::TP,
+            retraction_method::RTR, stepsize::S, stopping_criterion::SC, X_old::T, vector_transport_method::VTM,
+            nondescent_direction_behavior::Symbol, nondescent_direction_value::R
+        ) where {
+            P, T, D <: AbstractQuasiNewtonDirectionUpdate, C <: AbstractDict{Symbol},
+            SC <: StoppingCriterion, S <: Stepsize,
+            RTR <: AbstractRetractionMethod, VTM <: AbstractVectorTransportMethod, R, TP <: QuasiNewtonPreconditioner,
+        }
+        return new{P, T, D, C, SC, S, RTR, VTM, R, TP}(
+            callbacks, direction_update, η, nondescent_direction_behavior, nondescent_direction_value,
+            p, p_old, preconditioner, sk, retraction_method, stepsize, stopping_criterion,
+            vector_transport_method, yk, X, X_old
+        )
+    end
 end
+get_callbacks(qns::QuasiNewtonState) = qns.callbacks
 function get_message(qns::QuasiNewtonState)
     # collect messages from
     # (1) direction update or the
@@ -149,26 +141,40 @@ function get_message(qns::QuasiNewtonState)
     d = "$(length(d) > 0 ? "\n" : "")$(msg3)"
     return d
 end
-function show(io::IO, qns::QuasiNewtonState)
+provided_callbacks(::Type{QuasiNewtonState}) = union(_MANOPT_DEFAULT_CALLBACKS, [:Stepsize, :DirectionUpdate])
+function Base.show(io::IO, qns::QuasiNewtonState)
+    print(io, "QuasiNewtonState(; ")
+    print(io, "callbacks = ", qns.callbacks, ", ")
+    print(io, "direction_update = ", qns.direction_update, ", p = ", qns.p, ", p_old = ", qns.p_old)
+    print(io, ", η = ", qns.η, ", X = ", qns.X, ", sk = ", qns.sk, ", yk = ", qns.yk, ", ")
+    print(io, "nondescent_direction_behavior = ", qns.nondescent_direction_behavior, ", nondescent_direction_value = ", qns.nondescent_direction_value, ", ")
+    print(io, "preconditioner = ", qns.preconditioner, ", retraction_method = ", qns.retraction_method, ", stepsize = ", qns.stepsize, ", ")
+    print(io, "stopping_critertion = ", qns.stop, ", X_old = ", qns.X_old, ", vector_transport_method = ", qns.vector_transport_method)
+    return print(io, ")")
+end
+function status_summary(qns::QuasiNewtonState; context::Symbol = :default)
+    (context === :short) && return repr(qns)
     i = get_count(qns, :Iterations)
+    conv_inl = (i > 0) ? (indicates_convergence(qns.stop) ? " (converged" : " (stopped") * " after $i iterations)" : ""
+    (context === :inline) && return "A solver state for the quasi Newton solver$(conv_inl)"
     Iter = (i > 0) ? "After $i iterations\n" : ""
     Conv = indicates_convergence(qns.stop) ? "Yes" : "No"
+    as = _callbacks_summary(qns)
     s = """
     # Solver state for `Manopt.jl`s Quasi Newton Method
     $Iter
-    ## Parameters
+    ## Parameters$(as)
     * direction update:        $(status_summary(qns.direction_update))
     * retraction method:       $(qns.retraction_method)
     * vector transport method: $(qns.vector_transport_method)
 
     ## Stepsize
-    $(qns.stepsize)
+    $(_in_str(status_summary(qns.stepsize; context = context); indent = 0, headers = 1))
 
     ## Stopping criterion
-
-    $(status_summary(qns.stop))
+    $(_in_str(status_summary(qns.stop; context = context); indent = 0, headers = 1))
     This indicates convergence: $Conv"""
-    return print(io, s)
+    return s
 end
 get_iterate(qns::QuasiNewtonState) = qns.p
 function set_iterate!(qns::QuasiNewtonState, M, p)
@@ -203,33 +209,31 @@ The ``k``th iteration consists of
 
 # Input
 
-$(_var(:Argument, :M; type = true))
-$(_var(:Argument, :f))
-$(_var(:Argument, :grad_f))
-$(_var(:Argument, :p))
+$(_args([:M, :f, :grad_f, :p]))
 
 # Keyword arguments
 
-* `basis=`[`DefaultOrthonormalBasis`](@extref ManifoldsBase.DefaultOrthonormalBasis)`()`:
+* `basis::AbstractBasis=`[`DefaultOrthonormalBasis`](@extref ManifoldsBase.DefaultOrthonormalBasis)`()`:
   basis to use within each of the the tangent spaces to represent
   the Hessian (inverse) for the cases where it is stored in full (matrix) form.
-* `cautious_update=false`:
+$(_kwargs(:callbacks; add_properties = [:process_note]))
+* `cautious_update::Bool=false`:
    whether or not to use the [`QuasiNewtonCautiousDirectionUpdate`](@ref)
-   which wraps the `direction_upate`.
+   which wraps the `direction_update`.
 * `cautious_function=(x) -> x * 1e-4`:
   a monotone increasing function for the cautious update that is zero at ``x=0``
   and strictly increasing at ``0``
-$(_var(:Keyword, :differential))
+$(_kwargs(:differential))
 * `direction_update=`[`InverseBFGS`](@ref)`()`:
   the [`AbstractQuasiNewtonUpdateRule`](@ref) to use.
-$(_var(:Keyword, :evaluation; add = :GradientExample))
+$(_kwargs(:evaluation; add_properties = [:GradientExample]))
 * `initial_operator= initial_scale*Matrix{Float64}(I, n, n)`:
    initial matrix to use in case the Hessian (inverse) approximation is stored as a full matrix,
    that is `n=manifold_dimension(M)`. This matrix is only allocated for the full matrix case.
    See also `initial_scale`.
 * `initial_scale=1.0`: scale initial `s` to use in with $(_doc_QN_init_scaling) in the computation of the limited memory approach.
   see also `initial_operator`
-* `memory_size=20`: limited memory, number of ``s_k, y_k`` to store.
+* `memory_size::Int=min(manifold_dimension(M), 20)`: limited memory, number of ``s_k, y_k`` to store.
    Set to a negative value to use a full memory (matrix) representation
 * `nondescent_direction_behavior=:reinitialize_direction_update`:
   specify how non-descent direction is handled. This can be
@@ -241,14 +245,14 @@ $(_var(:Keyword, :evaluation; add = :GradientExample))
 * `preconditioner=nothing` specify a preconditioner, either
   * the default `nothing` does not activate a preconditioning
   * a function of the form `(M, p, X) -> Y` or mutating `(M, Y, p, X) -> Y` depending on the `evaluation`
-  * a [`PreconditionedDirection`](@ref). See also their docs for mor details on the preconditioner.
+  * a [`PreconditionedDirection`](@ref). See also their docs for more details on the preconditioner.
   Note that the preconditioner is applied to the gradient, i.e. the right hand side _before_ solving the linear system.
 * `project!=copyto!`: for numerical stability it is possible to project onto the tangent space after every iteration.
   the function has to work inplace of `Y`, that is `(M, Y, p, X) -> Y`, where `X` and `Y` can be the same memory.
-$(_var(:Keyword, :retraction_method))
-$(_var(:Keyword, :stepsize; default = "[`WolfePowellLinesearch`](@ref)`(retraction_method, vector_transport_method)`"))
-$(_var(:Keyword, :stopping_criterion; default = "[`StopAfterIteration`](@ref)`(max(1000, memory_size))`$(_sc(:Any))[`StopWhenGradientNormLess`](@ref)`(1e-6)`"))
-$(_var(:Keyword, :vector_transport_method))
+$(_kwargs(:retraction_method))
+$(_kwargs(:stepsize; default = "`[`WolfePowellLinesearch`](@ref)`(retraction_method, vector_transport_method)"))
+$(_kwargs(:stopping_criterion; default = "`[`StopAfterIteration`](@ref)`(max(1000, memory_size))`$(_sc(:Any))[`StopWhenGradientNormLess`](@ref)`(1e-6)"))
+$(_kwargs(:vector_transport_method))
 
 $(_note(:OtherKeywords))
 
@@ -257,9 +261,7 @@ $(_note(:OutputSection))
 
 @doc "$(_doc_QN)"
 function quasi_Newton(
-        M::AbstractManifold,
-        f::TF,
-        grad_f::TDF,
+        M::AbstractManifold, f::TF, grad_f::TDF,
         p = rand(M);
         evaluation::AbstractEvaluationType = AllocatingEvaluation(),
         differential = nothing,
@@ -286,10 +288,7 @@ calls_with_kwargs(::typeof(quasi_Newton)) = (quasi_Newton!,)
 @doc "$(_doc_QN)"
 quasi_Newton!(M::AbstractManifold, params...; kwargs...)
 function quasi_Newton!(
-        M::AbstractManifold,
-        f::TF,
-        grad_f::TDF,
-        p;
+        M::AbstractManifold, f::TF, grad_f::TDF, p;
         differential = nothing,
         evaluation::AbstractEvaluationType = AllocatingEvaluation(),
         kwargs...,
@@ -300,9 +299,8 @@ function quasi_Newton!(
     return quasi_Newton!(M, mgo, p; kwargs...)
 end
 function quasi_Newton!(
-        M::AbstractManifold,
-        mgo::O,
-        p;
+        M::AbstractManifold, mgo::O, p;
+        callbacks = Dict{Symbol, Function}(),
         cautious_update::Bool = false,
         cautious_function::Function = x -> x * 1.0e-4,
         debug = is_tutorial_mode() ? [DebugWarnIfGradientNormTooLarge()] : [],
@@ -324,35 +322,36 @@ function quasi_Newton!(
         preconditioner = nothing,
         initial_scale::Union{<:Real, Nothing} = isnothing(preconditioner) ? 1.0 : nothing,
         stepsize::Union{Stepsize, ManifoldDefaultsFactory} = default_stepsize(
-            M,
-            QuasiNewtonState;
+            M, QuasiNewtonState;
             retraction_method = retraction_method,
             vector_transport_method = vector_transport_method,
         ),
         stopping_criterion::StoppingCriterion = StopAfterIteration(max(1000, memory_size)) |
             StopWhenGradientNormLess(1.0e-6),
+        nonpositive_curvature_behavior::Symbol = :ignore,
+        sy_tol::Real = 1.0e-8,
         kwargs...,
     ) where {
         E <: AbstractEvaluationType,
         O <: Union{AbstractManifoldFirstOrderObjective{E}, AbstractDecoratedManifoldObjective{E}},
     }
     keywords_accepted(quasi_Newton!; kwargs...)
+    local local_dir_upd # COV_EXCL_LINE
     if memory_size >= 0
         local_dir_upd = QuasiNewtonLimitedMemoryDirectionUpdate(
-            M,
-            p,
-            direction_update,
-            memory_size;
+            M, p, direction_update, memory_size;
             initial_scale = initial_scale,
             (project!) = (project!),
             vector_transport_method = vector_transport_method,
+            nonpositive_curvature_behavior = nonpositive_curvature_behavior,
+            sy_tol = sy_tol,
         )
+        if has_anisotropic_max_stepsize(M)
+            local_dir_upd = QuasiNewtonLimitedMemoryBoxDirectionUpdate(local_dir_upd)
+        end
     else
         local_dir_upd = QuasiNewtonMatrixDirectionUpdate(
-            M,
-            direction_update,
-            basis,
-            initial_operator;
+            M, direction_update, basis, initial_operator;
             initial_scale = initial_scale,
             vector_transport_method = vector_transport_method,
         )
@@ -368,6 +367,7 @@ function quasi_Newton!(
         M;
         p = p,
         initial_vector = get_gradient(mp, p),
+        callbacks = process_callbacks_arg(callbacks, QuasiNewtonState),
         direction_update = local_dir_upd,
         stopping_criterion = stopping_criterion,
         preconditioner = if preconditioner isa Function
@@ -375,7 +375,7 @@ function quasi_Newton!(
         else
             preconditioner
         end,
-        stepsize = _produce_type(stepsize, M),
+        stepsize = _produce_type(stepsize, M, p),
         retraction_method = retraction_method,
         vector_transport_method = vector_transport_method,
     )
@@ -385,21 +385,32 @@ function quasi_Newton!(
 end
 calls_with_kwargs(::typeof(quasi_Newton!)) = (decorate_objective!, decorate_state!)
 
+function _get_max_stepsize(M::AbstractManifold, qns::QuasiNewtonState)
+    current_max_stepsize = get_parameter(qns.direction_update, Val(:max_stepsize))
+    if !isnothing(current_max_stepsize) && !isfinite(current_max_stepsize)
+        return max_stepsize(M, qns.p) / norm(qns.η)
+    else
+        return current_max_stepsize
+    end
+end
+
 function initialize_solver!(amp::AbstractManoptProblem, qns::QuasiNewtonState)
     M = get_manifold(amp)
     get_gradient!(amp, qns.X, qns.p)
     copyto!(M, qns.sk, qns.p, qns.X)
     copyto!(M, qns.yk, qns.p, qns.X)
     initialize_update!(qns.direction_update)
+    initialize_stepsize!(qns.stepsize)
     return qns
 end
 function step_solver!(mp::AbstractManoptProblem, qns::QuasiNewtonState, k)
     M = get_manifold(mp)
-    get_gradient!(mp, qns.X, qns.p)
+    # qns.X should be the correct gradient at qns.p from initialization or the previous step
     qns.direction_update(qns.η, mp, qns)
+    current_max_stepsize = _get_max_stepsize(M, qns)
     if !(qns.nondescent_direction_behavior === :ignore)
         qns.nondescent_direction_value = real(inner(M, qns.p, qns.η, qns.X))
-        if qns.nondescent_direction_value > 0
+        if qns.nondescent_direction_value >= 0
             if qns.nondescent_direction_behavior === :step_towards_negative_gradient ||
                     qns.nondescent_direction_behavior === :reinitialize_direction_update
                 copyto!(M, qns.η, qns.X)
@@ -408,27 +419,34 @@ function step_solver!(mp::AbstractManoptProblem, qns::QuasiNewtonState, k)
             if qns.nondescent_direction_behavior === :reinitialize_direction_update
                 initialize_update!(qns.direction_update)
             end
+            # update direction after reinitialization to get a valid one
+            if qns.nondescent_direction_behavior === :step_towards_negative_gradient ||
+                    qns.nondescent_direction_behavior === :reinitialize_direction_update
+                qns.direction_update(qns.η, mp, qns)
+                current_max_stepsize = _get_max_stepsize(M, qns)
+            end
         end
     end
-    α = qns.stepsize(mp, qns, k, qns.η; gradient = qns.X)
+    callback(:DirectionUpdate, mp, qns, k)
+    local α # COV_EXCL_LINE
+    if isnothing(current_max_stepsize)
+        α = qns.stepsize(mp, qns, k, qns.η; gradient = qns.X)
+    else
+        α = qns.stepsize(mp, qns, k, qns.η; gradient = qns.X, stop_when_stepsize_exceeds = current_max_stepsize)
+    end
+    callback(:Stepsize, mp, qns, k)
     copyto!(M, qns.p_old, get_iterate(qns))
     ManifoldsBase.retract_fused!(M, qns.p, qns.p, qns.η, α, qns.retraction_method)
     qns.η .*= α
     # qns.yk update fails if α is equal to 0 because then β is NaN
     β = ifelse(
-        iszero(α),
-        one(α),
+        iszero(α), one(α),
         locking_condition_scale(
             M, qns.direction_update, qns.p_old, qns.η, qns.p, qns.vector_transport_method
         ),
     )
     vector_transport_to!(
-        M,
-        qns.sk,
-        qns.p_old,
-        qns.η,
-        qns.p,
-        get_update_vector_transport(qns.direction_update),
+        M, qns.sk, qns.p_old, qns.η, qns.p, get_update_vector_transport(qns.direction_update),
     )
     vector_transport_to!(
         M, qns.X, qns.p_old, qns.X, qns.p, get_update_vector_transport(qns.direction_update)
@@ -460,10 +478,7 @@ update_hessian!(d::AbstractQuasiNewtonDirectionUpdate, ::Any, ::Any, ::Any, ::An
 
 function update_hessian!(
         d::QuasiNewtonMatrixDirectionUpdate{InverseBFGS},
-        mp::AbstractManoptProblem,
-        st::AbstractManoptSolverState,
-        p_old,
-        iter,
+        mp::AbstractManoptProblem, st::AbstractManoptSolverState, p_old, iter,
     )
     M = get_manifold(mp)
     p = get_iterate(st)
@@ -504,10 +519,7 @@ end
 # Inverse DFP update
 function update_hessian!(
         d::QuasiNewtonMatrixDirectionUpdate{InverseDFP},
-        mp::AbstractManoptProblem,
-        st::AbstractManoptSolverState,
-        p_old,
-        iter,
+        mp::AbstractManoptProblem, st::AbstractManoptSolverState, p_old, iter,
     )
     M = get_manifold(mp)
     p = get_iterate(st)
@@ -528,10 +540,7 @@ end
 # DFP update
 function update_hessian!(
         d::QuasiNewtonMatrixDirectionUpdate{DFP},
-        mp::AbstractManoptProblem,
-        st::AbstractManoptSolverState,
-        p_old,
-        iter,
+        mp::AbstractManoptProblem, st::AbstractManoptSolverState, p_old, iter,
     )
     M = get_manifold(mp)
     p = get_iterate(st)
@@ -552,10 +561,7 @@ end
 # Inverse SR-1 update
 function update_hessian!(
         d::QuasiNewtonMatrixDirectionUpdate{InverseSR1},
-        mp::AbstractManoptProblem,
-        st::AbstractManoptSolverState,
-        p_old,
-        ::Int,
+        mp::AbstractManoptProblem, st::AbstractManoptSolverState, p_old, ::Int,
     )
     M = get_manifold(mp)
     p = get_iterate(st)
@@ -574,10 +580,7 @@ end
 # SR-1 update
 function update_hessian!(
         d::QuasiNewtonMatrixDirectionUpdate{SR1},
-        mp::AbstractManoptProblem,
-        st::AbstractManoptSolverState,
-        p_old,
-        ::Int,
+        mp::AbstractManoptProblem, st::AbstractManoptSolverState, p_old, ::Int,
     )
     M = get_manifold(mp)
     p = get_iterate(st)
@@ -596,10 +599,7 @@ end
 # Inverse Broyden update
 function update_hessian!(
         d::QuasiNewtonMatrixDirectionUpdate{InverseBroyden},
-        mp::AbstractManoptProblem,
-        st::AbstractManoptSolverState,
-        p_old,
-        ::Int,
+        mp::AbstractManoptProblem, st::AbstractManoptSolverState, p_old, ::Int,
     )
     M = get_manifold(mp)
     p = get_iterate(st)
@@ -624,10 +624,7 @@ end
 # Broyden update
 function update_hessian!(
         d::QuasiNewtonMatrixDirectionUpdate{Broyden},
-        mp::AbstractManoptProblem,
-        st::AbstractManoptSolverState,
-        p_old,
-        ::Int,
+        mp::AbstractManoptProblem, st::AbstractManoptSolverState, p_old, ::Int,
     )
     M = get_manifold(mp)
     p = get_iterate(st)
@@ -694,10 +691,7 @@ end
 # Cautious update
 function update_hessian!(
         d::QuasiNewtonCautiousDirectionUpdate{U},
-        mp::AbstractManoptProblem,
-        st::AbstractManoptSolverState,
-        p_old,
-        iter,
+        mp::AbstractManoptProblem, st::AbstractManoptSolverState, p_old, iter,
     ) where {U <: AbstractQuasiNewtonDirectionUpdate}
     M = get_manifold(mp)
     p = get_iterate(st)
@@ -711,19 +705,63 @@ function update_hessian!(
     return d
 end
 
+function fill_rho_i!(M::AbstractManifold, p, d::QuasiNewtonLimitedMemoryDirectionUpdate, i::Int)
+    v = inner(M, p, d.memory_s[i], d.memory_y[i])
+    if d.nonpositive_curvature_behavior === :ignore && iszero(v)
+        d.ρ[i] = zero(eltype(d.ρ))
+        if length(d.message) > 0
+            d.message = replace(d.message, " i=" => " i=$i,")
+            d.message = replace(d.message, "summand in" => "summands in")
+        else
+            d.message = "The inner products ⟨s_i,y_i⟩ ≈ 0, i=$i, ignoring summand in approximation."
+        end
+    elseif d.nonpositive_curvature_behavior === :byrd && v <= d.sy_tol * norm(M, p, d.memory_y[i])
+        d.ρ[i] = zero(eltype(d.ρ))
+        if length(d.message) > 0
+            d.message = replace(d.message, " i=" => " i=$i,")
+            d.message = replace(d.message, "summand in" => "summands in")
+        else
+            d.message = "The inner products ⟨s_i,y_i⟩ <= $(d.sy_tol * norm(M, p, d.memory_y[i])), i=$i, removing summand from approximation."
+        end
+    else
+        d.ρ[i] = 1 / v
+    end
+    return d
+end
+
+function _drop_zero_rho_vectors!(d::QuasiNewtonLimitedMemoryDirectionUpdate{U}) where {U <: InverseBFGS}
+    T = eltype(d.memory_s)
+    memory_size = capacity(d.memory_s)
+    new_scb = CircularBuffer{T}(memory_size)
+    new_ycb = CircularBuffer{T}(memory_size)
+    new_ρ = similar(d.ρ)
+    fill!(new_ρ, 0)
+    j = 1
+    for i in 1:length(d.memory_s)
+        if !iszero(d.ρ[i])
+            push!(new_scb, d.memory_s[i])
+            push!(new_ycb, d.memory_y[i])
+            new_ρ[j] = d.ρ[i]
+            j += 1
+        end
+    end
+    d.memory_s = new_scb
+    d.memory_y = new_ycb
+    d.ρ = new_ρ
+    return d
+end
+
 # Limited-memory update
 function update_hessian!(
         d::QuasiNewtonLimitedMemoryDirectionUpdate{U},
-        mp::AbstractManoptProblem,
-        st::AbstractManoptSolverState,
-        p_old,
-        ::Int,
+        mp::AbstractManoptProblem, st::AbstractManoptSolverState, p_old, ::Int,
     ) where {U <: InverseBFGS}
     (capacity(d.memory_s) == 0) && return d
     # only transport the first if it does not get overwritten at the end
     start = length(d.memory_s) == capacity(d.memory_s) ? 2 : 1
     M = get_manifold(mp)
     p = get_iterate(st)
+    reforming_required = false
     for i in start:length(d.memory_s)
         # transport all stored tangent vectors in the tangent space of the next iterate
         vector_transport_to!(
@@ -732,6 +770,28 @@ function update_hessian!(
         vector_transport_to!(
             M, d.memory_y[i], p_old, d.memory_y[i], p, d.vector_transport_method
         )
+
+        # what if division by zero happened here, setting to zero ignores this in the next step
+        # pre-compute in case inner is expensive
+        fill_rho_i!(M, p, d, i)
+        if d.nonpositive_curvature_behavior === :byrd && iszero(d.ρ[i])
+            reforming_required = true
+        end
+    end
+
+    if reforming_required
+        # we need to move first vectors in memory too because they most likely won't be
+        # overwritten by new pairs
+        if start == 2
+            vector_transport_to!(
+                M, d.memory_s[1], p_old, d.memory_s[1], p, d.vector_transport_method
+            )
+            vector_transport_to!(
+                M, d.memory_y[1], p_old, d.memory_y[1], p, d.vector_transport_method
+            )
+            fill_rho_i!(M, p, d, 1)
+        end
+        _drop_zero_rho_vectors!(d)
     end
 
     # add newest
@@ -740,6 +800,7 @@ function update_hessian!(
         old_sk = popfirst!(d.memory_s)
         copyto!(M, old_sk, st.sk)
         push!(d.memory_s, old_sk)
+        circshift!(d.ρ, -1)
     else
         push!(d.memory_s, copy(M, st.sk))
     end
@@ -750,23 +811,22 @@ function update_hessian!(
     else
         push!(d.memory_y, copy(M, st.yk))
     end
+
+    fill_rho_i!(M, p, d, length(d.memory_s))
+
     return d
 end
 
 # all Cautious Limited Memory
 function update_hessian!(
         d::QuasiNewtonCautiousDirectionUpdate{<:QuasiNewtonLimitedMemoryDirectionUpdate},
-        mp::AbstractManoptProblem,
-        st::AbstractManoptSolverState,
-        p_old,
-        iter,
+        mp::AbstractManoptProblem, st::AbstractManoptSolverState, p_old, iter,
     )
     # computing the bound used in the decision rule
     M = get_manifold(mp)
     p = get_iterate(st)
     bound = d.θ(norm(M, p_old, get_gradient(mp, p_old)))
     sk_normsq = norm(M, p, st.sk)^2
-
     # if the decision rule is fulfilled, the new `sk` and `yk` are added
     if sk_normsq != 0 && real(inner(M, p, st.sk, st.yk) / sk_normsq) >= bound
         update_hessian!(d.update, mp, st, p_old, iter)
@@ -774,22 +834,29 @@ function update_hessian!(
         # the stored vectors are just transported to the new tangent space; `sk` and `yk` are not added
         for i in 1:length(d.update.memory_s)
             vector_transport_to!(
-                M,
-                d.update.memory_s[i],
-                p_old,
-                d.update.memory_s[i],
-                p,
-                d.update.vector_transport_method,
+                M, d.update.memory_s[i], p_old, d.update.memory_s[i], p, d.update.vector_transport_method,
             )
             vector_transport_to!(
-                M,
-                d.update.memory_y[i],
-                p_old,
-                d.update.memory_y[i],
-                p,
-                d.update.vector_transport_method,
+                M, d.update.memory_y[i], p_old, d.update.memory_y[i], p, d.update.vector_transport_method,
             )
+            fill_rho_i!(M, p, d.update, i)
         end
     end
     return d
+end
+
+function get_cost(
+        mp::AbstractManoptProblem, s::QuasiNewtonState{
+            P, T, <:AbstractQuasiNewtonDirectionUpdate, <:Dict, <:StoppingCriterion, <:HagerZhangLinesearchStepsize,
+        }
+    ) where {P, T}
+
+    hzls = s.stepsize
+    if hzls.last_evaluation_index === 0
+        # if no evaluation was performed, we need to compute the cost
+        return get_cost(mp, s.p)
+    else
+        # we can reuse the stored function value from the linesearch
+        return hzls.triples[hzls.last_evaluation_index].f
+    end
 end

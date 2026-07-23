@@ -9,7 +9,7 @@ decorate the [`AbstractManoptSolverState`](@ref)` s` with specific decorators.
 
 optional arguments provide necessary details on the decorators.
 
-* `callback=missing` add an arbitrary (simple) callback function `cb()` to be called every iteration.
+* `callback=missing` (deprecated) add an arbitrary (simple) callback function `cb()` to be called every iteration.
 * `debug=Array{Union{Symbol,DebugAction,String,Int, Function},1}()`: a set of symbols
   representing [`DebugAction`](@ref)s, `Strings` used as dividers and a sub-sampling
   integer. These are passed as a [`DebugGroup`](@ref) within `:Iteration` to the
@@ -47,13 +47,18 @@ function decorate_state!(
             Dict{Symbol, RecordAction}, # a dictionary for precise settings
             Array{<:Any, 1}, # a formatted string with symbols or AbstractStateActions
         } = missing,
-        callback = missing, # a (simple) callback function
+        callback = missing, # a (simple) callback function – deprecated
         return_state = false,
         kwargs..., # ignore all others
     ) where {S <: AbstractManoptSolverState}
     deco_s = s
     # Add callback to debug parameter
     if !ismissing(callback) # we got a simple callback
+        @warn """
+            the `callback =` keyword/decorator step is deprecated, use
+            `callbacks = [:Step => [...]]` to add your callback to the (end of)
+            an iteration step
+        """
         if ismissing(debug)
             debug = DebugCallback(callback; simple = true)
         else
@@ -124,7 +129,7 @@ function decorate_objective!(
     # 3) _then_ cache,
     # count should not be affected by 1) but cache should be on manifold not embedding
     # => only count _after_ cache misses
-    # and always last wrapper: `ReturnObjective`.
+    # and always last wrapper: `ReturnManifoldObjective`.
     deco_o = o
     if objective_type ∈ [:Embedding, :Euclidean]
         deco_o = EmbeddedManifoldObjective(o, _embedded_p, _embedded_X)
@@ -148,20 +153,27 @@ function initialize_solver!(p::AbstractManoptProblem, s::ReturnSolverState)
 end
 
 """
-    solve!(p::AbstractManoptProblem, s::AbstractManoptSolverState)
+    solve!(problem::AbstractManoptProblem, state::AbstractManoptSolverState)
 
-run the solver implemented for the [`AbstractManoptProblem`](@ref)` p` and the
-[`AbstractManoptSolverState`](@ref)` s` employing [`initialize_solver!`](@ref), [`step_solver!`](@ref),
+run the solver implemented for the [`AbstractManoptProblem`](@ref) `problem` and the
+[`AbstractManoptSolverState`](@ref) `state` employing [`initialize_solver!`](@ref), [`step_solver!`](@ref),
 as well as the [`stop_solver!`](@ref) of the solver.
+
+This includes a callback `:BeforeInit`, `:Init`, `:BeforeStep`, `:Step`, and `:Stop`.
 """
-function solve!(p::AbstractManoptProblem, s::AbstractManoptSolverState)
-    iter::Integer = 0
-    initialize_solver!(p, s)
-    while !stop_solver!(p, s, iter)
-        iter = iter + 1
-        step_solver!(p, s, iter)
+function solve!(problem::AbstractManoptProblem, state::AbstractManoptSolverState)
+    iteration = 0
+    callback(:BeforeInit, problem, state, 0)
+    initialize_solver!(problem, state)
+    callback(:Init, problem, state, 0)
+    while !stop_solver!(problem, state, iteration)
+        iteration = iteration + 1
+        callback(:BeforeStep, problem, state, iteration)
+        step_solver!(problem, state, iteration)
+        callback(:Step, problem, state, iteration)
     end
-    return s
+    callback(:Stop, problem, state, iteration)
+    return state
 end
 
 """
@@ -182,10 +194,30 @@ depending on the current [`AbstractManoptProblem`](@ref) `amp`, the current stat
 stored in [`AbstractManoptSolverState`](@ref) `ams` and the current iterate `i` this function
 determines whether to stop the solver, which by default means to call
 the internal [`StoppingCriterion`](@ref). `ams.stop`
+
+This includes a callback `:BeforeStop`.
 """
 function stop_solver!(amp::AbstractManoptProblem, ams::AbstractManoptSolverState, k)
+    callback(:BeforeStop, amp, ams, k)
     return ams.stop(amp, ams, k)
 end
 function stop_solver!(p::AbstractManoptProblem, s::ReturnSolverState, k)
     return stop_solver!(p, s.state, k)
+end
+
+"""
+    get_cost(p::AbstractManoptProblem, s::AbstractManoptSolverState)
+
+Get cost at the current iterate of the solver state `s` for the problem `p`.
+The method may be implemented by particular solvers if they store the cost at the current
+iterate in the state, but by default it is obtained by calling `get_cost(p, get_iterate(s))`.
+"""
+function get_cost(p::AbstractManoptProblem, s::AbstractManoptSolverState)
+    return _get_cost(p, s, dispatch_state_decorator(s))
+end
+function _get_cost(p::AbstractManoptProblem, s::AbstractManoptSolverState, ::Val{false})
+    return get_cost(p, get_iterate(s))
+end
+function _get_cost(p::AbstractManoptProblem, s::AbstractManoptSolverState, ::Val{true})
+    return get_cost(p, s.state)
 end

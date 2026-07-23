@@ -28,7 +28,7 @@ The following symbols are used.
 | `:Activity` | [`DebugWhenActive`](@ref) | activity of the debug action stored within |
 | `:Basepoint` | [`TangentSpace`](@extref ManifoldsBase `ManifoldsBase.TangentSpace`) | the point the tangent space is at |
 | `:Cost` | generic |the cost function (within an objective, as pass down) |
-| `:Debug` | [`DebugSolverState`](@ref) | the stored `debugDictionary` |
+| `:Debug` | [`DebugSolverState`](@ref) | the stored `debug_dictionary` |
 | `:Gradient` | generic | the gradient function (within an objective, as pass down) |
 | `:Iterate` | generic | the (current) iterate, similar to [`set_iterate!`](@ref), within a state |
 | `:Manifold` | generic |the manifold (within a problem, as pass down) |
@@ -41,7 +41,7 @@ The following symbols are used.
 | `:TrustRegionRadius` | [`TrustRegionsState`](@ref) | the trust region radius, equivalent to `:σ` |
 | `:ρ`, `:u` | [`ExactPenaltyCost`](@ref), [`ExactPenaltyGrad`](@ref) | Parameters within the exact penalty objective |
 | `:ρ`, `:μ`, `:λ` | [`AugmentedLagrangianCost`](@ref), [`AugmentedLagrangianGrad`](@ref) | Parameters of the Lagrangian function |
-| `:p`, `:X` | [`LinearizedDCCost`](@ref), [`LinearizedDCGrad`](@ref) | Parameters withing the linearized functional used for the sub problem of the [difference of convex algorithm](@ref solver-difference-of-convex) |
+| `:p`, `:X` | [`LinearizedDCCost`](@ref), [`LinearizedDCGrad`](@ref) | Parameters within the linearized functional used for the sub problem of the [difference of convex algorithm](@ref solver-difference-of-convex) |
 
 Any other lower case name or letter as well as single upper case letters access fields of the corresponding first argument.
 for example `:p` could be used to access the field `s.p` of a state.
